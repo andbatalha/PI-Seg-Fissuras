@@ -1,6 +1,20 @@
-.venv/
-venv/
+# Dataset
+data/BFDD/
+
+# Resultados gerados
+results/
+
+# Python
 __pycache__/
 *.pyc
-.env
+
+# Ambiente virtual
+.venv/
+venv/
+
+# VS Code
 .vscode/
+
+# Sistema
+.DS_Store
+Thumbs.db
