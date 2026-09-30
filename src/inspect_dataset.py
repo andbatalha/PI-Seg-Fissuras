@@ -134,6 +134,10 @@ def inspect_folders(root: Path) -> None:
 
 
 def inspect_label_values(root: Path) -> None:
+    """
+    Investiga os valores de classe presentes em todas
+    as máscaras da pasta Label.
+    """
 
     label_folder = root / "Label"
 
@@ -143,26 +147,49 @@ def inspect_label_values(root: Path) -> None:
         print("Nenhuma Label encontrada.")
         return
 
-    label_path = images[0]
+    all_values = set()
+    class_occurrences = {}
 
-    label = cv2.imread(
-        str(label_path),
-        cv2.IMREAD_UNCHANGED
+    print("\n=== Investigação das Labels ===\n")
+
+    for path in images:
+
+        label = cv2.imread(
+            str(path),
+            cv2.IMREAD_UNCHANGED
+        )
+
+        if label is None:
+            print(f"Não foi possível abrir: {path}")
+            continue
+
+        unique_values = np.unique(label)
+
+        for value in unique_values:
+
+            value = int(value)
+
+            all_values.add(value)
+
+            if value not in class_occurrences:
+                class_occurrences[value] = 0
+
+            class_occurrences[value] += 1
+
+    print(f"Quantidade de Labels analisadas: {len(images)}")
+
+    print(
+        f"Valores encontrados no dataset: "
+        f"{sorted(all_values)}"
     )
 
-    if label is None:
-        print("Não foi possível abrir a Label.")
-        return
+    print("\nPresença de cada valor nas imagens:\n")
 
-    print("\n=== Investigação da Label ===\n")
-
-    print(f"Arquivo: {label_path.name}")
-    print(f"Dimensões: {label.shape}")
-    print(f"Tipo: {label.dtype}")
-
-    unique_values = np.unique(label)
-
-    print(f"Valores únicos: {unique_values}")
+    for value in sorted(class_occurrences):
+        print(
+            f"Valor {value}: "
+            f"{class_occurrences[value]} imagens"
+        )
 
 
 def main():
