@@ -25,3 +25,32 @@ labels_dir = Path("data/BFDD/Label")
 dataset_index = build_dataset_index(labels_dir)
 
 print("Quantidade de imagens:", len(dataset_index))
+
+
+
+combination_count = {}
+
+for classes in dataset_index.values():
+    damage_classes = []
+
+    for damage_class in classes:
+        if damage_class != DamageClass.BACKGROUND:
+            damage_classes.append(damage_class)
+
+    combination = tuple(damage_classes)
+
+    if combination not in combination_count:
+        combination_count[combination] = 1
+    else:
+        combination_count[combination] += 1
+
+for combination, count in combination_count.items():
+    names = []
+
+    for damage_class in combination:
+        names.append(damage_class.name)
+
+    combination_name = " + ".join(names)
+
+    print(f"{combination_name}: {count} imagens")
+

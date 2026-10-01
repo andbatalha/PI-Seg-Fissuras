@@ -86,3 +86,25 @@ O desenvolvimento previsto consiste em:
 6. Gerar visualizações para análise dos resultados.
 
 O objetivo final é verificar **até que ponto técnicas de Processamento Digital de Imagens conseguem identificar e separar automaticamente as diferentes patologias presentes nas fachadas**, utilizando as máscaras do dataset como referência para avaliação.
+
+
+Quantidade de imagens: 838
+CRACK + PEELING + STAIN: 19 imagens
+CRACK + STAIN: 92 imagens
+CRACK + EROSION + STAIN: 133 imagens
+: 2 imagens
+CRACK: 68 imagens
+CRACK + HOLLOW_AREA + EROSION: 109 imagens
+CRACK + HOLLOW_AREA + EROSION + STAIN: 128 imagens
+CRACK + PEELING + HOLLOW_AREA + EROSION + STAIN: 56 imagens
+CRACK + PEELING: 20 imagens
+PEELING: 2 imagens
+CRACK + HOLLOW_AREA: 26 imagens
+CRACK + HOLLOW_AREA + STAIN: 12 imagens
+CRACK + EROSION: 79 imagens
+CRACK + PEELING + EROSION + STAIN: 27 imagens
+CRACK + PEELING + EROSION: 12 imagens
+CRACK + PEELING + HOLLOW_AREA + EROSION: 39 imagens
+CRACK + PEELING + HOLLOW_AREA: 8 imagens
+CRACK + PEELING + HOLLOW_AREA + STAIN: 5 imagens
+EROSION: 1 imagens
