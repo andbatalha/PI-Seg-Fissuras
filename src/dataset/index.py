@@ -16,3 +16,17 @@ def get_present_classes(label):
         classes.append(damage_class)
     
     return classes
+
+
+def build_dataset_index(labels_dir: Path):
+    label_paths = list(labels_dir.glob("*.png"))
+
+    dataset_index = {}
+
+    for label_path in label_paths:
+        label = load_label(label_path)
+        classes = get_present_classes(label)
+
+        dataset_index[label_path.stem] = classes
+
+    return dataset_index    

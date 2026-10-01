@@ -1,17 +1,24 @@
 from pathlib import Path
-import argparse
-from dataset.classes import DamageClass
 
 import cv2
 import numpy as np
 
-IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"]
+from dataset.classes import DamageClass
 
 
-print("O programa iniciou!")
+DATASET_PATH = Path("data/BFDD")
+
+IMAGE_EXTENSIONS = [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".tiff",
+    ".tif"
+]
+
 
 def find_images(root: Path) -> list[Path]:
-
     """
     Procura arquivos de imagem dentro da pasta informada
     e também dentro de todas as suas subpastas.
@@ -26,22 +33,17 @@ def find_images(root: Path) -> list[Path]:
     return images
 
 
-
 def print_directory_structure(root: Path, max_depth: int = 3) -> None:
     """
-    Print the directory structure of the given root directory.
-
-    Args:
-        root (Path): The root directory to print the structure of.
-        max_depth (int): The maximum depth to print.
+    Exibe a estrutura de diretórios do dataset.
     """
 
-    print("\n=== Estrutura do Diretorio ===")
+    print("\n" + "=" * 60)
+    print("ESTRUTURA DO DATASET")
+    print("=" * 60)
 
     for path in root.rglob("*"):
-
         relative_path = path.relative_to(root)
-
         depth = len(relative_path.parts)
 
         if depth > max_depth:
@@ -50,34 +52,7 @@ def print_directory_structure(root: Path, max_depth: int = 3) -> None:
         indentation = "  " * (depth - 1)
 
         if path.is_dir():
-            print(f"{indentation}[DIR] {path.name}")
-
-
-def inspect_images(images: list[Path], limit: int = 10) -> None:
-    """
-    Abre algumas imagens e mostra informações sobre elas.
-    """
-
-    print("\n=== Imagens encontradas ===\n")
-
-    print(f"Total de imagens: {len(images)}")
-
-    if len(images) == 0:
-        print("Nenhuma imagem encontrada.")
-        return
-
-    for path in images[:limit]:
-
-        image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-
-        if image is None:
-            print(f"Falha ao abrir a imagem: {path}")
-            continue
-
-        print(f"Arquivo: {path}")
-        print(f"Dimensões: {image.shape}")
-        print(f"Tipo dos dados: {image.dtype}")
-        print("-" * 60)
+            print(f"{indentation}└── {path.name}/")
 
 
 def count_images_by_folder(root: Path) -> None:
@@ -86,28 +61,38 @@ def count_images_by_folder(root: Path) -> None:
     pasta principal do dataset.
     """
 
-    print("\n=== Quantidade de imagens por pasta ===\n")
+    print("\n" + "=" * 60)
+    print("QUANTIDADE DE IMAGENS POR PASTA")
+    print("=" * 60)
+
+    total = 0
 
     for folder in sorted(root.iterdir()):
-
         if not folder.is_dir():
             continue
 
         images = find_images(folder)
+        amount = len(images)
 
-        print(f"{folder.name}: {len(images)}")
+        print(f"{folder.name:<40} {amount:>5}")
+
+        total += amount
+
+    print("-" * 60)
+    print(f"{'TOTAL':<40} {total:>5}")
 
 
 def inspect_folders(root: Path) -> None:
     """
-    Abre a primeira imagem encontrada em cada pasta principal
-    e mostra suas características.
+    Exibe as características de uma imagem de exemplo
+    de cada pasta principal.
     """
 
-    print("\n=== Exemplo de cada pasta ===\n")
+    print("\n" + "=" * 60)
+    print("CARACTERÍSTICAS DAS IMAGENS")
+    print("=" * 60)
 
     for folder in sorted(root.iterdir()):
-
         if not folder.is_dir():
             continue
 
@@ -127,11 +112,10 @@ def inspect_folders(root: Path) -> None:
             print(f"Não foi possível abrir: {path}")
             continue
 
-        print(f"Pasta: {folder.name}")
-        print(f"Arquivo: {path.name}")
+        print(f"\nPasta:     {folder.name}")
+        print(f"Exemplo:   {path.name}")
         print(f"Dimensões: {image.shape}")
-        print(f"Tipo: {image.dtype}")
-        print("-" * 60)
+        print(f"Tipo:      {image.dtype}")
 
 
 def inspect_label_values(root: Path) -> None:
@@ -141,7 +125,6 @@ def inspect_label_values(root: Path) -> None:
     """
 
     label_folder = root / "Label"
-
     images = find_images(label_folder)
 
     if len(images) == 0:
@@ -151,10 +134,7 @@ def inspect_label_values(root: Path) -> None:
     all_values = set()
     class_occurrences = {}
 
-    print("\n=== Investigação das Labels ===\n")
-
     for path in images:
-
         label = cv2.imread(
             str(path),
             cv2.IMREAD_UNCHANGED
@@ -167,7 +147,6 @@ def inspect_label_values(root: Path) -> None:
         unique_values = np.unique(label)
 
         for value in unique_values:
-
             value = int(value)
 
             all_values.add(value)
@@ -177,52 +156,51 @@ def inspect_label_values(root: Path) -> None:
 
             class_occurrences[value] += 1
 
-    print(f"Quantidade de Labels analisadas: {len(images)}")
+    print("\n" + "=" * 60)
+    print("CLASSES DAS LABELS")
+    print("=" * 60)
 
-    print(
-        f"Valores encontrados no dataset: "
-        f"{sorted(all_values)}"
-    )
+    print(f"\nLabels analisadas: {len(images)}")
+    print(f"Valores encontrados: {sorted(all_values)}")
 
-    print("\nPresença de cada valor nas imagens:\n")
+    print("\nPresença das classes:")
+    print("-" * 60)
 
     for value in sorted(class_occurrences):
+        damage_class = DamageClass(value)
+        occurrences = class_occurrences[value]
+        percentage = occurrences / len(images) * 100
+
         print(
-            f"Valor {value} ({DamageClass(value).name}): "
-            f"{class_occurrences[value]} imagens"
+            f"{value} - {damage_class.name:<15} "
+            f"{occurrences:>4} imagens "
+            f"({percentage:>5.1f}%)"
         )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Inspeciona a estrutura do dataset BFDD")
-
-    parser.add_argument(
-        "dataset_path",
-        type=str,
-        help="Caminho para a pasta raiz do dataset BFDD"
-    )
-
-    args = parser.parse_args()
-
-    dataset_root = Path(args.dataset_path)
+    dataset_root = DATASET_PATH
 
     if not dataset_root.exists() or not dataset_root.is_dir():
-        raise FileNotFoundError(f"O caminho informado não existe ou não é uma pasta: {dataset_root}")
+        raise FileNotFoundError(
+            f"O dataset não foi encontrado em: {dataset_root.resolve()}"
+        )
 
-    print(f"\nDataset encontrado em:")
-    print(dataset_root.resolve())
+    print("\n" + "=" * 60)
+    print("INSPEÇÃO DO DATASET BFDD")
+    print("=" * 60)
+
+    print(f"\nCaminho: {dataset_root.resolve()}")
 
     print_directory_structure(dataset_root)
-
     count_images_by_folder(dataset_root)
-
-    images = find_images(dataset_root)
-
-    inspect_images(images)
-
     inspect_folders(dataset_root)
-
     inspect_label_values(dataset_root)
+
+    print("\n" + "=" * 60)
+    print("INSPEÇÃO CONCLUÍDA")
+    print("=" * 60)
+
 
 if __name__ == "__main__":
     main()

@@ -5,6 +5,7 @@ from dataset.loader import load_label
 from dataset.masks import create_binary_mask
 from dataset.classes import DamageClass
 from dataset.index import get_present_classes
+from dataset.index import build_dataset_index
 
 
 label_path = Path(
@@ -19,13 +20,8 @@ crack_mask = create_binary_mask(
     DamageClass.EROSION
 )
 
-print("Classes presentes na label:")
-for damage_class in classes:
-    print(f"- {damage_class.name} (valor: {damage_class.value})")
+labels_dir = Path("data/BFDD/Label")
 
-print("Label:", np.unique(label))
+dataset_index = build_dataset_index(labels_dir)
 
-print("Erosion:")
-print("Shape:", crack_mask.shape)
-print("Valores:", np.unique(crack_mask))
-print("Pixels:", np.sum(crack_mask))
+print("Quantidade de imagens:", len(dataset_index))
