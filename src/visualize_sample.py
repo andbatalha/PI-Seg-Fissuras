@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import cv2
+from dataset.loader import load_image, load_label
 import matplotlib.pyplot as plt
 import numpy as np
 import random
@@ -28,11 +29,8 @@ def main():
     label_color_file = LABEL_COLOR_PATH / f"{image_name}.png"
 
     # Carregamos as imagens
-    rgb = cv2.imread(str(rgb_file))
-    label = cv2.imread(
-        str(label_file),
-        cv2.IMREAD_UNCHANGED
-    )
+    rgb = load_image(rgb_file)
+    label = load_label(label_file)
     label_color = cv2.imread(str(label_color_file))
 
     # OpenCV lê imagens coloridas como BGR.

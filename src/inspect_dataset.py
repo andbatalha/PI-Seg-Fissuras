@@ -1,5 +1,6 @@
 from pathlib import Path
 import argparse
+from dataset.classes import DamageClass
 
 import cv2
 import numpy as np
@@ -187,7 +188,7 @@ def inspect_label_values(root: Path) -> None:
 
     for value in sorted(class_occurrences):
         print(
-            f"Valor {value}: "
+            f"Valor {value} ({DamageClass(value).name}): "
             f"{class_occurrences[value]} imagens"
         )
 

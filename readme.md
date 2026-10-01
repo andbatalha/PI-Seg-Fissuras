@@ -27,14 +27,32 @@ PI-Seg-Fissuras/
 │   └── masks/               # Máscaras de segmentação
 │
 ├── src/
-│   └── visualize_sample.py  # Visualização das imagens e labels
-│   └── inspect_sataset.py
+    ├── dataset/
+│       ├── classes.py
+│       ├── loader.py
+│       └── masks.py
+│   ├── inspect_dataset.py
+│   ├── visualize_sample.py
+│   └── test_dataset.py
 │
 ├── requirements.txt
 └── README.md
 ```
 
-Atualmente, já realizamos a organização inicial do dataset e desenvolvemos uma interface de visualização que permite comparar uma imagem original com sua respectiva máscara e identificar visualmente as classes presentes.
+dataset/
+    Código reutilizável pelo sistema
+    ├── definição das classes
+    ├── carregamento
+    └── manipulação das máscaras
+
+inspect_dataset.py
+    Ferramenta de análise do dataset
+
+visualize_sample.py
+    Ferramenta de inspeção visual
+
+test_dataset.py
+    Testes temporários durante desenvolvimento
 
 ## Estrutura prevista
 
