@@ -1,110 +1,116 @@
 # PI-Seg-Fissuras
 
-Projeto desenvolvido para a disciplina de **Processamento de Imagens**, com o objetivo de identificar e segmentar diferentes tipos de manifestações patológicas presentes em imagens de fachadas.
+Projeto da disciplina de **Processamento de Imagens** (UFMA), dedicado à identificação e segmentação de manifestações patológicas em imagens de fachadas por meio de técnicas de Processamento Digital de Imagens.
 
 ## Objetivo
 
-Desenvolver um pipeline de processamento e segmentação capaz de analisar imagens de fachadas e identificar regiões correspondentes às seguintes classes:
+Desenvolver um pipeline que receba uma imagem de fachada, aplique pré-processamento e produza máscaras de segmentação para identificar regiões danificadas. A implementação começará pela **detecção de fissuras** e poderá ser ampliada para outras classes.
 
-| ID | Classe       |
-|---|---            |
-| 0 | Background    |
-| 1 | Fissura       |
-| 2 | Descascamento |
-| 3 | Área oca      |
-| 4 | Erosão        |
-| 5 | Mancha        |
+| ID | Classe (BFDD) | Descrição |
+|---:|---|---|
+| 0 | `BACKGROUND` | Fundo / regiões não rotuladas como dano |
+| 1 | `CRACK` | Fissura |
+| 2 | `PEELING` | Descascamento |
+| 3 | `HOLLOW_AREA` | Área oca |
+| 4 | `EROSION` | Erosão |
+| 5 | `STAIN` | Mancha |
 
-O projeto utiliza um **dataset público previamente rotulado**, contendo imagens das fachadas e suas respectivas máscaras de segmentação.
+O sistema deverá funcionar também com **imagens externas**, sem depender das máscaras do dataset. As máscaras de referência serão usadas **somente na avaliação**, nunca como entrada da segmentação.
 
-## Estrutura atual
+## Dataset
 
-```text
-PI-Seg-Fissuras/
-│
-├── data/
-│   ├── images/              # Imagens originais
-│   └── masks/               # Máscaras de segmentação
-│
-├── src/
-    ├── dataset/
-│       ├── classes.py
-│       ├── loader.py
-│       └── masks.py
-│   ├── inspect_dataset.py
-│   ├── visualize_sample.py
-│   └── test_dataset.py
-│
-├── requirements.txt
-└── README.md
-```
+Utilizamos o **BFDD (Building Façade Defect Dataset)**, com **838 amostras** e imagens de **512 × 640 pixels**. As pastas disponíveis incluem:
 
-dataset/
-    Código reutilizável pelo sistema
-    ├── definição das classes
-    ├── carregamento
-    └── manipulação das máscaras
+- `RGB/`: fotografias utilizadas como entrada do pipeline;
+- `Label/`: máscaras numéricas de referência (IDs de 0 a 5);
+- `Label_color/`: representação colorida das classes;
+- `IR/`: imagens infravermelhas;
+- `Label_backup_7classes_20260125/`: cópia alternativa das labels.
 
-inspect_dataset.py
-    Ferramenta de análise do dataset
+A classe `CRACK` está presente em **833 das 838 imagens**. Como uma amostra pode conter vários danos, as classes não são mutuamente exclusivas no nível da imagem.
 
-visualize_sample.py
-    Ferramenta de inspeção visual
+### Divisão dos dados — concluída
 
-test_dataset.py
-    Testes temporários durante desenvolvimento
+Para desenvolvimento e avaliação, as imagens foram agrupadas pela **combinação de classes presentes** (desconsiderando o fundo), ordenadas pelo identificador de captura e divididas de forma **contínua** em aproximadamente 80% para desenvolvimento e 20% para teste.
 
-## Estrutura prevista
+| Conjunto | Imagens | Percentual |
+|---|---:|---:|
+| Desenvolvimento | 671 | 80,07% |
+| Teste | 167 | 19,93% |
+| **Total** | **838** | **100%** |
+
+As verificações automatizadas confirmaram **ausência de arquivos repetidos, ausentes e compartilhados entre os conjuntos** (`overlap = 0`). A inspeção visual identificou alguns pares semelhantes nos pontos de corte; portanto, a divisão reduz, mas **não elimina**, o risco de similaridade visual entre desenvolvimento e teste.
+
+O histórico da exploração do BFDD, das combinações e dos testes está documentado em [`DATASET_ANALYSIS.md`](DATASET_ANALYSIS.md).
+
+## Estrutura do projeto
 
 ```text
 PI-Seg-Fissuras/
-│
 ├── data/
-│   ├── images/
-│   └── masks/
-│
+│   └── BFDD/
+│       ├── RGB/
+│       ├── IR/
+│       ├── Label/
+│       ├── Label_color/
+│       └── Label_backup_7classes_20260125/
 ├── src/
-│   ├── preprocessing/       # Pré-processamento das imagens
-│   ├── segmentation/        # Algoritmos de segmentação
-│   ├── evaluation/          # Métricas e comparação dos resultados
-│   └── visualization/       # Visualização dos resultados
-│
-├── results/                 # Imagens, gráficos e resultados
+│   ├── dataset/
+│   │   ├── classes.py          # Enumeração das classes
+│   │   ├── loader.py           # Leitura de imagens e labels
+│   │   ├── masks.py            # Extração de máscaras binárias
+│   │   ├── index.py            # Índice de classes por imagem
+│   │   └── split.py            # Divisão desenvolvimento/teste
+│   ├── inspect_dataset.py     # Estatísticas e inspeção do BFDD
+│   ├── visualize_sample.py    # Inspeção visual de amostras
+│   └── test_dataset.py        # Verificações da preparação dos dados
 ├── requirements.txt
+├── DATASET_ANALYSIS.md
 └── README.md
 ```
 
-## Próximas etapas
+> A pasta `data/BFDD/` representa a organização local do dataset. Os diretórios de implementação abaixo serão adicionados conforme o desenvolvimento avançar.
 
-O desenvolvimento previsto consiste em:
+### Módulos previstos
 
-1. Explorar e compreender melhor o dataset e suas classes;
-2. Realizar o pré-processamento das imagens;
-3. Implementar técnicas de segmentação e processamento de imagens;
-4. Comparar as segmentações obtidas com as máscaras originais do dataset;
-5. Avaliar quantitativamente os resultados utilizando métricas de segmentação;
-6. Gerar visualizações para análise dos resultados.
+```text
+src/
+├── preprocessing/   # Escala de cinza, contraste e redução de ruído
+├── segmentation/    # Algoritmos de segmentação por tipo de dano
+├── postprocessing/  # Refinamento das máscaras previstas
+├── evaluation/      # IoU, Dice/F1, precisão e recall
+└── visualization/   # Comparações e sobreposições dos resultados
+results/             # Saídas experimentais e visualizações
+```
 
-O objetivo final é verificar **até que ponto técnicas de Processamento Digital de Imagens conseguem identificar e separar automaticamente as diferentes patologias presentes nas fachadas**, utilizando as máscaras do dataset como referência para avaliação.
+## Pipeline planejado
 
+```text
+Imagem RGB (BFDD ou foto externa)
+           ↓
+Pré-processamento (grayscale, CLAHE, filtros — a avaliar)
+           ↓
+Segmentação (inicialmente fissuras)
+           ↓
+Pós-processamento (morfologia e limpeza — a avaliar)
+           ↓
+Máscara binária prevista / visualização
+           ↓
+Avaliação com label de referência (somente para imagens rotuladas)
+```
 
-Quantidade de imagens: 838
-CRACK + PEELING + STAIN: 19 imagens
-CRACK + STAIN: 92 imagens
-CRACK + EROSION + STAIN: 133 imagens
-: 2 imagens
-CRACK: 68 imagens
-CRACK + HOLLOW_AREA + EROSION: 109 imagens
-CRACK + HOLLOW_AREA + EROSION + STAIN: 128 imagens
-CRACK + PEELING + HOLLOW_AREA + EROSION + STAIN: 56 imagens
-CRACK + PEELING: 20 imagens
-PEELING: 2 imagens
-CRACK + HOLLOW_AREA: 26 imagens
-CRACK + HOLLOW_AREA + STAIN: 12 imagens
-CRACK + EROSION: 79 imagens
-CRACK + PEELING + EROSION + STAIN: 27 imagens
-CRACK + PEELING + EROSION: 12 imagens
-CRACK + PEELING + HOLLOW_AREA + EROSION: 39 imagens
-CRACK + PEELING + HOLLOW_AREA: 8 imagens
-CRACK + PEELING + HOLLOW_AREA + STAIN: 5 imagens
-EROSION: 1 imagens
+As técnicas específicas e seus parâmetros serão definidos e comparados experimentalmente; **ainda não há resultados de segmentação ou métricas finais**.
+
+## Estado atual e próximas etapas
+
+**Concluído:** inspeção da estrutura e das classes do BFDD; carregamento das imagens e labels; geração de máscaras binárias; indexação; análise das combinações de danos; divisão 80/20 e verificações de integridade.
+
+**A desenvolver:**
+
+1. Implementar e testar o pré-processamento das imagens.
+2. Desenvolver a segmentação de fissuras e, posteriormente, investigar outras classes.
+3. Refinar as máscaras geradas com pós-processamento.
+4. Comparar as previsões com as labels do BFDD usando IoU, Dice/F1, precisão e recall.
+5. Gerar visualizações dos resultados e permitir o processamento de fotos externas.
+
+O conjunto de **desenvolvimento** servirá para experimentar métodos e ajustar parâmetros. O conjunto de **teste** ficará reservado para a avaliação final.
