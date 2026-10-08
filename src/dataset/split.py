@@ -24,7 +24,7 @@ def split_dataset(dataset_index):
     development_images = []
     test_images = []
 
-    for combination, image_names in combination.items():
+    for combination, image_names in combination_groups.items():
         names = []
 
         image_names = sorted(image_names)
@@ -35,4 +35,6 @@ def split_dataset(dataset_index):
         else:
             test_images.extend(image_names[-test_count:])
             development_images.extend(image_names[:-test_count])
+
+    return development_images, test_images
 
