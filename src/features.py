@@ -64,11 +64,13 @@ def sample_pixels(features, label, max_per_class, rng):
     """
     y = label.reshape(-1)
 
+    x_sample = []
+    y_sample = []
+
     for classe in range(6):
         indices_classe = np.flatnonzero(y == classe)
 
-        x_sample = []
-        y_sample = []
+        
 
         print(f"Classe {classe}: {len(indices_classe)} pixels")
 
@@ -79,6 +81,9 @@ def sample_pixels(features, label, max_per_class, rng):
 
         x_sample.append(features[indices_selecionados])
         y_sample.append(y[indices_selecionados])
+
+    x_sample = np.concatenate(x_sample, axis=0)
+    y_sample = np.concatenate(y_sample, axis=0)
 
     return x_sample, y_sample
 
@@ -135,4 +140,8 @@ label = load_label(Path("data/BFDD/Label/DJI_20250624185000_0100.png"))
 
 rng = np.random.default_rng(42)
 
-sample_pixels(features, label, 500, rng)
+x_sample, y_sample = sample_pixels(features, label, 500, rng)
+
+print("Shape X:", x_sample.shape)
+print("Shape y:", y_sample.shape)
+print("Distribuição:", np.bincount(y_sample, minlength=6))

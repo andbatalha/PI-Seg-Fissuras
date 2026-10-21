@@ -1,3 +1,4 @@
+from cProfile import label
 from pathlib import Path
 
 import cv2
@@ -179,6 +180,7 @@ def inspect_label_values(root: Path) -> None:
 
 
 def main():
+
     dataset_root = DATASET_PATH
 
     if not dataset_root.exists() or not dataset_root.is_dir():
