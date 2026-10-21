@@ -1,10 +1,12 @@
 from pathlib import Path
+import numpy as np
 
 from dataset.classes import DamageClass
 from dataset.index import build_dataset_index
 from dataset.split import split_dataset
 from dataset.split import split_train_validation
 from features import count_dataset_pixels
+from training import build_training_data
 
 labels_dir = Path("data/BFDD/Label")
 
@@ -70,3 +72,28 @@ validation_counts = count_dataset_pixels(validation_images, labels_dir)
 
 print("Pixels por classe no treinamento:", train_counts)
 print("Pixels por classe na validação:", validation_counts)
+
+
+import time
+
+inicio = time.perf_counter()
+ 
+X_train, y_train = build_training_data(
+    train_images,
+    Path("data/BFDD/RGB"),
+    Path("data/BFDD/Label"),
+    max_per_class=500,
+    seed=42
+)
+
+fim = time.perf_counter()
+
+print(f"Tempo: {fim - inicio:.2f} segundos")
+print("Shape X_train:", X_train.shape)
+print("Shape y_train:", y_train.shape)
+print("Distribuição:", np.bincount(y_train, minlength=6))
+
+assert X_train.shape[0] == y_train.shape[0]
+assert X_train.shape[1] == 7
+assert np.isfinite(X_train).all()
+assert np.all(np.bincount(y_train, minlength=6) > 0)
