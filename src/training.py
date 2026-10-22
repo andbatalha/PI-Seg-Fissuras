@@ -1,5 +1,6 @@
 import numpy as np
 from pathlib import Path
+from sklearn.ensemble import RandomForestClassifier
 
 from dataset.loader import load_image
 from dataset.loader import load_label
@@ -35,3 +36,18 @@ def build_training_data(train_images, rgb_dir, labels_dir, max_per_class=500, se
     return x_train, y_train
 
 
+def train_random_forest(x_train, y_train):
+    model = RandomForestClassifier(
+            n_estimators=100,
+            criterion='gini',
+            max_depth=20,
+            min_samples_split=2,
+            min_samples_leaf=5,
+            max_features='sqrt',
+            class_weight= None,
+            n_jobs=-1,
+            random_state=42)
+
+    model.fit(x_train, y_train)
+
+    return model

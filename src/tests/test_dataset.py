@@ -7,6 +7,7 @@ from dataset.split import split_dataset
 from dataset.split import split_train_validation
 from features import count_dataset_pixels
 from training import build_training_data
+from training import train_random_forest
 
 labels_dir = Path("data/BFDD/Label")
 
@@ -97,3 +98,13 @@ assert X_train.shape[0] == y_train.shape[0]
 assert X_train.shape[1] == 7
 assert np.isfinite(X_train).all()
 assert np.all(np.bincount(y_train, minlength=6) > 0)
+
+inicio = time.perf_counter()
+
+model = train_random_forest(X_train, y_train)
+
+fim = time.perf_counter()
+
+print(f"Tempo de treinamento: {fim - inicio:.2f} segundos")
+print("Quantidade de árvores:", len(model.estimators_))
+print("Classes aprendidas:", model.classes_)
