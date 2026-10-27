@@ -18,3 +18,10 @@ venv/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Modelos treinados
+models/*.joblib
+
+# Cache Python
+__pycache__/
+*.pyc
