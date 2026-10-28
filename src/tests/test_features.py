@@ -11,7 +11,6 @@ from features import extract_features, count_dataset_pixels, sample_pixels
 
 image = Path("data/BFDD/RGB/DJI_20250624185000_0100.JPG")
 
-
 img_rgb = load_image(image)
 
 gray = grayscale_luminosity(img_rgb)
