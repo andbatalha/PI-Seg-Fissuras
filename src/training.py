@@ -4,11 +4,13 @@ from sklearn.ensemble import RandomForestClassifier
 
 from dataset.loader import load_image
 from dataset.loader import load_label
-from preprocessing import grayscale_luminosity
+from preprocessing import grayscale_luminosity, clahe
 from features import sample_pixels
 from features import extract_features
 
-def build_training_data(train_images, rgb_dir, labels_dir, max_background=2000, max_per_class=500, seed=42):
+def build_training_data(train_images, rgb_dir,
+                        labels_dir, max_background=2000,
+                        max_per_class=500, seed=42):
     rng = np.random.default_rng(seed)
 
     x_train_list = []
@@ -28,7 +30,8 @@ def build_training_data(train_images, rgb_dir, labels_dir, max_background=2000, 
         label = load_label(label_path)
 
         gray = grayscale_luminosity(image)
-        features = extract_features(image, gray)
+        clahe_image = clahe(gray)
+        features = extract_features(image, clahe_image)
 
         x_sample, y_sample = sample_pixels(
             features, label, max_background, max_per_class, rng
