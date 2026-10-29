@@ -47,7 +47,7 @@ label = load_label(Path("data/BFDD/Label/DJI_20250624185000_0100.png"))
 
 rng = np.random.default_rng(42)
 
-x_sample, y_sample = sample_pixels(features, label, 500, rng)
+x_sample, y_sample = sample_pixels(features, label, 2000, 500, rng)
 
 print("Shape X:", x_sample.shape)
 print("Shape y:", y_sample.shape)

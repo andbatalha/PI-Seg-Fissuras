@@ -42,19 +42,20 @@ def extract_features(image, gray):
 
     return features
 
-def sample_pixels(features, label, max_per_class, rng):
+def sample_pixels(features, label, max_background, max_per_class, rng):
     """
-    Amostra pixels de cada classe, limitando o número máximo por classe.
+    Amostra pixels de cada classe, com limite específico para o background.
 
     Args:
-        features: matriz (327680, 7) contendo as características.
-        label: máscara (512, 640) contendo as classes reais.
-        max_per_class: quantidade máxima de pixels selecionados por classe.
-        rng: gerador de números aleatórios do NumPy, para reproduzirmos os experimentos.
+        features: matriz (327680, 7) com as características dos pixels.
+        label: máscara (512, 640) com as classes reais.
+        max_background: quantidade máxima de pixels da classe Background (0).
+        max_per_class: quantidade máxima de pixels de cada uma das demais classes.
+        rng: gerador de números aleatórios do NumPy.
 
     Returns:
-       A função deverá retornar duas matrizes: X_sample, com as características dos pixels selecionados,
-       e y_sample, com suas respectivas classes.
+        x_sample: características dos pixels selecionados.
+        y_sample: classes correspondentes aos pixels selecionados.
     """
     y = label.reshape(-1)
 
@@ -64,14 +65,16 @@ def sample_pixels(features, label, max_per_class, rng):
     for classe in range(6):
         indices_classe = np.flatnonzero(y == classe)
 
-        
+        if classe == 0:
+            quantidade = min(max_background, len(indices_classe))
+        else:
+            quantidade = min(max_per_class, len(indices_classe))
 
-        print(f"Classe {classe}: {len(indices_classe)} pixels")
-
-        quantidade = min(max_per_class, len(indices_classe))
-        indices_selecionados = rng.choice(indices_classe, size=quantidade, replace=False)
-
-        print(f"Selecionando {quantidade} pixels da classe {classe}")
+        indices_selecionados = rng.choice(
+            indices_classe,
+            size=quantidade,
+            replace=False
+        )
 
         x_sample.append(features[indices_selecionados])
         y_sample.append(y[indices_selecionados])
@@ -80,6 +83,7 @@ def sample_pixels(features, label, max_per_class, rng):
     y_sample = np.concatenate(y_sample, axis=0)
 
     return x_sample, y_sample
+
 
 def count_dataset_pixels(image_names, labels_dir):
     total_counts = np.zeros(6, dtype=np.int64)

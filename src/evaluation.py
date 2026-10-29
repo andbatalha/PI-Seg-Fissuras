@@ -11,14 +11,24 @@ def calculate_evaluation_counts(label, predicted_mask):
         false_positive = int(np.sum(~real & predicted))
         false_negative = int(np.sum(real & ~predicted))
 
+        results[classe] = {
+            "TP": true_positive,
+            "FP": false_positive,
+            "FN": false_negative,
+        }
+
+    return results
+
+
+def calculate_metrics(true_positive, false_positive, false_negative):
+
         precision = ( true_positive / (true_positive + false_positive)
-                if (true_positive + false_positive) > 0 else 0.0
+                    if (true_positive + false_positive) > 0 else 0.0
         )
-        
+
         recall = ( true_positive / (true_positive + false_negative)
                 if (true_positive + false_negative) > 0 else 0.0
         )
-
 
         IoU = ( true_positive / (true_positive + false_negative + false_positive)
                 if (true_positive + false_negative + false_positive) > 0 else 0.0
@@ -29,15 +39,9 @@ def calculate_evaluation_counts(label, predicted_mask):
                 if (precision + recall) > 0 else 0.0
         )
 
-        results[classe] = {
-            "TP": true_positive,
-            "FP": false_positive,
-            "FN": false_negative,
+        return {
             "Precision": precision,
             "Recall": recall,
             "IoU": IoU,
             "F1": f1_score
         }
-
-    return results
-

@@ -1,11 +1,13 @@
 from pathlib import Path
 import joblib
 import numpy as np
+from numpy.char import index
 
 from dataset.index import build_dataset_index
 from dataset.split import split_dataset, split_train_validation
 from dataset.loader import load_image, load_label
 from prediction import predict_image
+from evaluation import calculate_evaluation_counts
 
 rgb_dir = Path("data/BFDD/RGB")
 labels_dir = Path("data/BFDD/Label")
@@ -18,23 +20,30 @@ train_images, validation_images = split_train_validation(development_images, dat
 
 model = joblib.load("models/random_forest.joblib")
 
-image_name = validation_images[0]
+total_counts = {
+    classe: {"TP": 0, "FP": 0, "FN": 0}
+    for classe in range(6)
+}
 
-image = load_image(rgb_dir/f"{image_name}.JPG")
-label = load_label(labels_dir/f"{image_name}.png")
+for index, image in enumerate(validation_images, start=1):
+    image_path = rgb_dir/f"{image}.JPG"
+    label_path = labels_dir/f"{image}.png"
 
-predicted_mask = predict_image(model, image)
+    img = load_image(image_path)
+    lbl = load_label(label_path)
 
-print("Imagem:", image_name)
-print("Shape da imagem:", image.shape)
-print("Shape da label:", label.shape)
-print("Shape da previsão:", predicted_mask.shape)
+    pred_mask = predict_image(model, img)
 
-print("Classes reais:", np.unique(label))
-print("Classes previstas:", np.unique(predicted_mask))
+    calculated_counts = calculate_evaluation_counts(lbl, pred_mask)
 
-real_counts = np.bincount(label.reshape(-1))
-predicted_counts = np.bincount(predicted_mask.reshape(-1))
+    for classe in range(6):
+        total_counts[classe]["TP"] += calculated_counts[classe]["TP"]
+        total_counts[classe]["FP"] += calculated_counts[classe]["FP"]
+        total_counts[classe]["FN"] += calculated_counts[classe]["FN"]
 
-print("Pixels reais:", real_counts)
-print("Pixels previstos:", predicted_counts)
+    print(f"Processando imagem {index}/{len(validation_images)}")
+
+
+print("\nContagens totais:")
+for classe, counts in total_counts.items():
+    print(f"Classe {classe}: {counts}")
