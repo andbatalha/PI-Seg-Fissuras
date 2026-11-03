@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from dataset.loader import load_label
+from src.dataset.loader import load_label
 
 
 def extract_features(image, gray):

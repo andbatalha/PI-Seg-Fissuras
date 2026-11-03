@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 
-from dataset.loader import load_image
+from src.dataset.loader import load_image
 
 from pathlib import Path
 

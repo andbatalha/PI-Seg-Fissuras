@@ -2,11 +2,11 @@ import numpy as np
 from pathlib import Path
 from sklearn.ensemble import RandomForestClassifier
 
-from dataset.loader import load_image
-from dataset.loader import load_label
-from preprocessing import grayscale_luminosity, clahe
-from features import sample_pixels
-from features import extract_features
+from src.dataset.loader import load_image
+from src.dataset.loader import load_label
+from src.preprocessing import grayscale_luminosity, clahe
+from src.features import sample_pixels
+from src.features import extract_features
 
 def build_training_data(train_images, rgb_dir,
                         labels_dir, max_background=2000,

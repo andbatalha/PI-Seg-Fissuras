@@ -1,16 +1,18 @@
 
+import os
 from pathlib import Path
+import numpy as np
 import time
 
 import joblib
 
-from dataset.index import build_dataset_index
-from dataset.split import split_dataset, split_train_validation
-from dataset.loader import load_image, load_label
+from src.dataset.index import build_dataset_index
+from src.dataset.split import split_dataset, split_train_validation
+from src.dataset.loader import load_image, load_label
 
-from training import build_training_data, train_random_forest
-from prediction import predict_image
-from evaluation import calculate_evaluation_counts, calculate_metrics
+from src.training import build_training_data, train_random_forest
+from src.prediction import predict_image
+from src.evaluation import calculate_evaluation_counts, calculate_metrics
 
 
 def main():
@@ -98,10 +100,13 @@ def main():
                 img = load_image(image_path)
                 lbl = load_label(label_path)
 
-                pred_mask = predict_image(model, img)
+                predicted_mask = predict_image(model, img)
+
+                print(predicted_mask.shape)
+                print(np.unique(predicted_mask))
 
                 calculated_counts = calculate_evaluation_counts(
-                    lbl, pred_mask
+                    lbl, predicted_mask
                 )
 
                 # Acumular TP, FP e FN

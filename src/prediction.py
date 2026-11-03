@@ -1,5 +1,5 @@
-from preprocessing import grayscale_luminosity
-from features import extract_features
+from src.preprocessing import grayscale_luminosity
+from src.features import extract_features
 
 def predict_image(model, image_path):
     gray = grayscale_luminosity(image_path)
@@ -11,3 +11,4 @@ def predict_image(model, image_path):
     predicted_mask = predictions.reshape(gray.shape)
 
     return predicted_mask
+

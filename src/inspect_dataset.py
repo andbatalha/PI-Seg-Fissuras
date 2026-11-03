@@ -4,7 +4,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from dataset.classes import DamageClass
+from src.dataset.classes import DamageClass
 
 
 DATASET_PATH = Path("data/BFDD")
