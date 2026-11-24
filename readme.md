@@ -18,6 +18,19 @@ Se a `.venv` foi criada com `uv` sem `pip`, instale as dependências com `uv pip
 
 `train` relê os dois NPZ, treina nas regiões binárias de treino e avalia nas regiões binárias da validação. É possível repetir essa etapa diretamente. O arquivo `random_forest.joblib` contém um dicionário com o estimador em `model`, as configurações e a ordem das características. Os relatórios `dataset_statistics.json` e `validation_metrics.json` registram as estatísticas e a avaliação por região. `results/` é ignorado pelo Git.
 
+### Inspeção visual de Stain com Streamlit
+
+Use um ambiente Python com as dependências de `requirements.txt`, incluindo Streamlit. Na raiz do projeto, com a `.venv` ativada, execute os comandos abaixo e abra o endereço local exibido no terminal.
+
+```powershell
+python -m pip install -r requirements.txt
+python -m streamlit run visualization/app.py --server.address 127.0.0.1
+```
+
+Para uma `.venv` criada com `uv` sem `pip`, use o comando `uv pip install` descrito acima. A interface lê `RGB/` e `Label/` em `data/BFDD/` e precisa de `split.json` e `random_forest.joblib` em `results/region_full/`. Use apenas o Joblib confiável produzido pelo projeto. O relatório `pixel_validation_per_image.json` habilita a ordenação por métricas, e os NPZ `train.npz` e `validation.npz` fornecem a presença de Stain quando essa informação não vem do relatório.
+
+A barra lateral permite selecionar treino ou validação, filtrar por presença de Stain, navegar por ID e ajustar as sobreposições e fronteiras SLIC. A interface calcula as métricas da máscara exibida com as mesmas funções da avaliação por pixel e usa o relatório salvo para ordenar a validação. O modelo e as predições recentes ficam em cache durante a sessão do servidor.
+
 ## Metodologia anterior por pixel
 
 **Segmentação de fissuras e outros danos em fachadas com processamento digital de imagens e aprendizado de máquina.**
