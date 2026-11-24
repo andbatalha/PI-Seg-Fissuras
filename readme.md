@@ -1,5 +1,25 @@
 # PI-Seg-Fissuras
 
+## Pipeline binário por regiões (branch `feat/classificacao-por-regioes`)
+
+Na raiz do repositório, com o BFDD em `data/BFDD/`, instale as dependências na `.venv` e execute.
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m experiments.train_regions build --output results/region_full
+.\.venv\Scripts\python.exe -m experiments.train_regions train --output results/region_full
+```
+
+Se a `.venv` foi criada com `uv` sem `pip`, instale as dependências com `uv pip install --python .\.venv\Scripts\python.exe -r requirements.txt`.
+
+`build` reutiliza a partição do projeto por combinações de classes e ordena o índice por ID antes da divisão. O conjunto de desenvolvimento contém 539 imagens de treino e 132 de validação (`seed=42`). As 167 imagens reservadas pelo projeto ficam fora da extração. O `test.txt` distribuído com o BFDD corresponde a outra partição. Os nomes informam datas e ordem de captura. Nesta divisão, 121 pares consecutivos do desenvolvimento cruzam treino e validação com intervalo de até cinco segundos. A identidade das fachadas nesses pares é desconhecida. O arquivo `split.json` registra os IDs usados e os reservados.
+
+`train.npz` e `validation.npz` armazenam as 15 características, os rótulos de todas as regiões e seus metadados. `image_ids[image_indices]` identifica a imagem de origem de cada linha. Use `build --smoke` com outra pasta de saída para verificar a integração em até cinco imagens por conjunto.
+
+`train` relê os dois NPZ, treina nas regiões binárias de treino e avalia nas regiões binárias da validação. É possível repetir essa etapa diretamente. O arquivo `random_forest.joblib` contém um dicionário com o estimador em `model`, as configurações e a ordem das características. Os relatórios `dataset_statistics.json` e `validation_metrics.json` registram as estatísticas e a avaliação por região. `results/` é ignorado pelo Git.
+
+## Metodologia anterior por pixel
+
 **Segmentação de fissuras e outros danos em fachadas com processamento digital de imagens e aprendizado de máquina.**
 
 Projeto desenvolvido na disciplina de **Processamento de Imagens**, com o objetivo principal de identificar fissuras (*Crack*) em imagens de fachadas. A abordagem atual utiliza **características extraídas por métodos clássicos de processamento de imagens** e um classificador **Random Forest** para realizar segmentação semântica por pixel.

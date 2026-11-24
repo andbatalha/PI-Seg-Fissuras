@@ -25,3 +25,6 @@ models/*.joblib
 # Cache Python
 __pycache__/
 *.pyc
+
+# AI agent instructions
+AGENTS.mdg

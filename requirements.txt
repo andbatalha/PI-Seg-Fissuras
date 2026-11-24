@@ -3,3 +3,5 @@ numpy
 matplotlib
 scikit-image
 pandas
+scikit-learn
+joblib
