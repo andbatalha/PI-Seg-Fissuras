@@ -12,26 +12,7 @@ from src.dataset.classes import DamageClass
 from src.dataset.masks import create_binary_mask
 from src.region_labeling import label_regions
 from src.segmentation import segment_regions
-
-
-def comparison_panels(images_and_titles):
-    """Dispõe imagens em uma linha, usando escala fixa para máscaras binárias."""
-    figure, axes = plt.subplots(1, len(images_and_titles), figsize=(20, 5))
-    for axis, (image, title) in zip(axes, images_and_titles):
-        if image.ndim == 2:
-            axis.imshow(image, cmap="gray", vmin=0, vmax=1)
-        else:
-            axis.imshow(image)
-        axis.set_title(title)
-        axis.axis("off")
-    return figure, axes
-
-
-def save_comparison(figure, output: Path) -> None:
-    """Ajusta o espaço dos painéis e grava o PNG no caminho indicado."""
-    output.parent.mkdir(parents=True, exist_ok=True)
-    figure.tight_layout()
-    figure.savefig(output, dpi=160, bbox_inches="tight")
+from visualization.plotting import comparison_panels, save_comparison
 
 
 def maximum_region_iou(region_sizes, target_counts):
@@ -63,7 +44,7 @@ def main():
     parser.add_argument("--start-label", type=int, choices=(0, 1))
     parser.add_argument(
         "--output",
-        default="outputs/diagnostico_slic.png"
+        default="results/diagnostics/diagnostico_slic.png"
     )
     args = parser.parse_args()
 

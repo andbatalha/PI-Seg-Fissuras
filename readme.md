@@ -1,355 +1,61 @@
 # PI-Seg-Fissuras
 
-## Pipeline binário por regiões (branch `feat/classificacao-por-regioes`)
+Segmentação binária de manchas em fachadas do BFDD. O pipeline segmenta o RGB em superpixels SLIC, calcula 15 características de cor, contraste, textura e gradiente por região e usa um Random Forest para classificar cada região. A máscara final tem valor `1` para Stain (ID 5 no BFDD) e `0` para as demais classes.
 
-Na raiz do repositório, com o BFDD em `data/BFDD/`, instale as dependências na `.venv` e execute.
+## Instalação
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m experiments.train_regions build --output results/region_full
-.\.venv\Scripts\python.exe -m experiments.train_regions train --output results/region_full
-```
-
-Se a `.venv` foi criada com `uv` sem `pip`, instale as dependências com `uv pip install --python .\.venv\Scripts\python.exe -r requirements.txt`.
-
-`build` reutiliza a partição do projeto por combinações de classes e ordena o índice por ID antes da divisão. O conjunto de desenvolvimento contém 539 imagens de treino e 132 de validação (`seed=42`). As 167 imagens reservadas pelo projeto ficam fora da extração. O `test.txt` distribuído com o BFDD corresponde a outra partição. Os nomes informam datas e ordem de captura. Nesta divisão, 121 pares consecutivos do desenvolvimento cruzam treino e validação com intervalo de até cinco segundos. A identidade das fachadas nesses pares é desconhecida. O arquivo `split.json` registra os IDs usados e os reservados.
-
-`train.npz` e `validation.npz` armazenam as 15 características, os rótulos de todas as regiões e seus metadados. `image_ids[image_indices]` identifica a imagem de origem de cada linha. Use `build --smoke` com outra pasta de saída para verificar a integração em até cinco imagens por conjunto.
-
-`train` relê os dois NPZ, treina nas regiões binárias de treino e avalia nas regiões binárias da validação. É possível repetir essa etapa diretamente. O arquivo `random_forest.joblib` contém um dicionário com o estimador em `model`, as configurações e a ordem das características. Os relatórios `dataset_statistics.json` e `validation_metrics.json` registram as estatísticas e a avaliação por região. `results/` é ignorado pelo Git.
-
-### Inspeção visual de Stain com Streamlit
-
-Use um ambiente Python com as dependências de `requirements.txt`, incluindo Streamlit. Na raiz do projeto, com a `.venv` ativada, execute os comandos abaixo e abra o endereço local exibido no terminal.
+Na raiz do repositório, ative a `.venv`, instale as dependências e coloque o BFDD em `data/BFDD/`, com `RGB/` e `Label/`.
 
 ```powershell
 python -m pip install -r requirements.txt
+```
+
+Se a `.venv` foi criada com `uv` sem `pip`, use `uv pip install --python .\.venv\Scripts\python.exe -r requirements.txt`. Para reutilizar um modelo salvo, use o ambiente compatível com o estimador serializado e leia apenas artefatos Joblib confiáveis do projeto.
+
+## Inspeção visual
+
+Com `split.json` e `random_forest.joblib` em `results/region_full/`, execute `python run_inspector.py` na raiz ou abra o arquivo pelo Run do VS Code. Também é possível usar os comandos abaixo.
+
+```powershell
 python -m streamlit run visualization/app.py --server.address 127.0.0.1
 ```
 
-Para uma `.venv` criada com `uv` sem `pip`, use o comando `uv pip install` descrito acima. A interface lê `RGB/` e `Label/` em `data/BFDD/` e precisa de `split.json` e `random_forest.joblib` em `results/region_full/`. Use apenas o Joblib confiável produzido pelo projeto. O relatório `pixel_validation_per_image.json` habilita a ordenação por métricas, e os NPZ `train.npz` e `validation.npz` fornecem a presença de Stain quando essa informação não vem do relatório.
+A interface compara RGB, referência binária, predição e mapa de erros. Ela permite navegar por treino e validação. `pixel_validation_per_image.json` habilita a ordenação por métricas. Os NPZ e o relatório por imagem fornecem a presença de Stain para os filtros.
 
-A barra lateral permite selecionar treino ou validação, filtrar por presença de Stain, navegar por ID e ajustar as sobreposições e fronteiras SLIC. A interface calcula as métricas da máscara exibida com as mesmas funções da avaliação por pixel e usa o relatório salvo para ordenar a validação. O modelo e as predições recentes ficam em cache durante a sessão do servidor.
+## Construção, treinamento e avaliação
 
-## Metodologia anterior por pixel
-
-**Segmentação de fissuras e outros danos em fachadas com processamento digital de imagens e aprendizado de máquina.**
-
-Projeto desenvolvido na disciplina de **Processamento de Imagens**, com o objetivo principal de identificar fissuras (*Crack*) em imagens de fachadas. A abordagem atual utiliza **características extraídas por métodos clássicos de processamento de imagens** e um classificador **Random Forest** para realizar segmentação semântica por pixel.
-
-> **Estado atual:** pipeline de treinamento, inferência e avaliação quantitativa implementado. Primeiro modelo (*baseline*) treinado e avaliado nas 132 imagens de validação. O desempenho ainda é insatisfatório, especialmente devido ao excesso de falsos positivos.
-
-## 1. Objetivo
-
-Desenvolver e avaliar um sistema capaz de classificar os pixels de imagens de fachadas em seis categorias, com foco na detecção de fissuras.
-
-Nesta etapa, o sistema utiliza as imagens do dataset **BFDD**. O processamento de fotografias externas ao dataset é uma possibilidade para versões futuras.
-
-## 2. Dataset
-
-O **BFDD** contém **838 imagens**, com resolução de **512 × 640 pixels**, organizadas em quatro conjuntos de arquivos correspondentes:
-
-| Diretório | Conteúdo |
-| --- | --- |
-| `RGB/` | Fotografias coloridas das fachadas |
-| `IR/` | Imagens infravermelhas |
-| `Label/` | Máscaras com identificadores numéricos das classes |
-| `Label_color/` | Representações coloridas das anotações |
-
-**Na implementação atual**, utilizamos as imagens `RGB` e as máscaras `Label`. Os outros diretórios estão disponíveis para exploração, mas não fazem parte das sete características do modelo atual.
-
-### Classes
-
-| ID | Classe | Descrição |
-| --- | --- | --- |
-| 0 | `BACKGROUND` | Fundo / regiões sem dano anotado |
-| 1 | `CRACK` | Fissura |
-| 2 | `PEELING` | Descascamento |
-| 3 | `HOLLOW_AREA` | Área oca |
-| 4 | `EROSION` | Erosão |
-| 5 | `STAIN` | Mancha |
-
-As classes são representadas no projeto pelo enum `DamageClass`, em `src/dataset/classes.py`.
-
-### Divisão dos dados
-
-O dataset foi separado considerando as **combinações de classes presentes nas imagens**:
-
-| Conjunto | Imagens | Uso |
-| --- | ---: | --- |
-| Treinamento | 539 | Ajuste do classificador |
-| Validação | 132 | Análise e comparação de experimentos |
-| Teste | 167 | Avaliação final, ainda reservada |
-| **Total** | **838** | |
-
-Primeiro, `split_dataset()` separa desenvolvimento (671 imagens) e teste (167). Em seguida, `split_train_validation()` divide o desenvolvimento em treinamento e validação, com semente aleatória `42`.
-
-Não há sobreposição de nomes de imagens entre os conjuntos. **A divisão por nomes não garante, por si só, independência visual entre fotografias próximas de uma mesma fachada**, aspecto a considerar na interpretação dos resultados.
-
-## 3. Pipeline implementado
-
-```text
-Imagem RGB + máscara de referência (somente treinamento/avaliação)
-       │
-       ├── Imagem RGB
-       │      ↓
-       │   Conversão para tons de cinza (luminosidade)
-       │      ↓
-       │   Extração de 7 características por pixel
-       │      ↓
-       │   ┌─────────────────────┬──────────────────────┐
-       │   │ TREINAMENTO         │ PREDIÇÃO             │
-       │   │ Amostragem por      │ Todos os pixels      │
-       │   │ classe + labels     │ sem usar a label     │
-       │   │        ↓            │         ↓            │
-       │   │ Random Forest.fit() │ Random Forest.predict()
-       │   └─────────────────────┴──────────────────────┘
-       │                                  ↓
-       │                         Máscara prevista (512 × 640)
-       │                                  ↓
-       └── Label real ─────────→ Avaliação por pixel
-                                  (TP, FP, FN, Precision,
-                                   Recall, F1-score e IoU)
-```
-
-### 3.1. Pré-processamento
-
-- Leitura da imagem RGB.
-- Conversão para escala de cinza por luminosidade.
-- Preservação das dimensões espaciais da imagem.
-
-Outras técnicas de melhoramento, como **CLAHE**, podem ser investigadas em experimentos futuros, mas **não integram o baseline atual**.
-
-### 3.2. Extração de características
-
-Para cada pixel, `extract_features(image, gray)` produz um vetor com **7 características**:
-
-1. Canal vermelho (`R`);
-2. Canal verde (`G`);
-3. Canal azul (`B`);
-4. Intensidade em escala de cinza;
-5. Média local em janela `3 × 3`;
-6. Desvio-padrão local em janela `3 × 3`;
-7. Magnitude do gradiente de Sobel.
-
-Para uma imagem de 512 × 640 pixels, a matriz de características tem formato **`(327680, 7)`**, em `float32`.
-
-### 3.3. Amostragem para treinamento
-
-A função `sample_pixels()` seleciona aleatoriamente **até 500 pixels por classe em cada imagem**, conforme sua disponibilidade na anotação. A amostragem é reproduzível por meio de gerador aleatório com semente definida.
-
-O conjunto amostrado de treinamento possui:
-
-- `X_train`: **`(995106, 7)`**
-- `y_train`: **`(995106,)`**
-
-Distribuição das amostras:
-
-| Classe | Pixels amostrados |
-| --- | ---: |
-| Background | 269.500 |
-| Crack | 262.976 |
-| Peeling | 52.561 |
-| Hollow Area | 112.363 |
-| Erosion | 153.614 |
-| Stain | 144.092 |
-
-Essa estratégia diminui o domínio do background no treinamento, mas pode contribuir para uma distribuição de classes diferente daquela encontrada nas imagens reais. Trata-se de uma **hipótese a investigar**, não de uma causa já comprovada para os erros.
-
-### 3.4. Treinamento
-
-Classificador: `sklearn.ensemble.RandomForestClassifier`.
-
-| Parâmetro | Valor |
-| --- | --- |
-| `n_estimators` | 100 |
-| `criterion` | `gini` |
-| `max_depth` | 20 |
-| `min_samples_split` | 2 |
-| `min_samples_leaf` | 5 |
-| `max_features` | `sqrt` |
-| `class_weight` | `None` |
-| `n_jobs` | `-1` |
-| `random_state` | 42 |
-
-O modelo treinado é salvo com `joblib` em **`models/random_forest.joblib`** (aproximadamente 1 GiB).
-
-### 3.5. Predição
-
-A função `predict_image(model, image)`:
-
-1. Prepara a imagem e extrai as mesmas sete características usadas no treinamento;
-2. Aplica `model.predict()` a **todos os pixels** da imagem, sem amostragem;
-3. Reorganiza as previsões em uma máscara **`(512, 640)`** com identificadores de classe de 0 a 5.
-
-A **label real não é utilizada na predição**; ela é usada apenas para treinamento supervisionado ou avaliação.
-
-### 3.6. Avaliação
-
-A avaliação é feita pixel a pixel, considerando cada classe separadamente (*one-vs-rest*):
-
-- **TP:** pixel pertence à classe e foi previsto corretamente;
-- **FP:** pixel não pertence à classe, mas foi previsto como pertencente;
-- **FN:** pixel pertence à classe, mas foi previsto como outra.
-
-Métricas:
-
-```text
-Precision = TP / (TP + FP)
-Recall    = TP / (TP + FN)
-F1-score  = 2 × Precision × Recall / (Precision + Recall)
-IoU       = TP / (TP + FP + FN)
-```
-
-Divisões por zero são tratadas no código. Quando uma classe não aparece nem na referência nem na previsão, a métrica é indefinida; esse caso deve ser tratado explicitamente em futuras médias por imagem.
-
-Na avaliação global, **somamos TP, FP e FN das 132 imagens de validação antes de calcular as métricas**. Não utilizamos uma média simples das métricas individuais das imagens como resultado global por pixel.
-
-## 4. Resultados do baseline
-
-**Conjunto avaliado:** 132 imagens de validação, totalizando **43.253.760 pixels**. As 167 imagens de teste não foram utilizadas.
-
-### Contagens acumuladas
-
-| Classe | TP | FP | FN |
-| --- | ---: | ---: | ---: |
-| Background | 26.950.027 | 977.816 | 12.350.159 |
-| Crack | 491.519 | 5.540.731 | 245.773 |
-| Peeling | 53.318 | 566.929 | 236.266 |
-| Hollow Area | 117.368 | 2.911.036 | 314.226 |
-| Erosion | 744.405 | 2.778.177 | 495.125 |
-| Stain | 245.805 | 1.876.629 | 1.009.769 |
-
-### Métricas globais por classe
-
-| Classe | Precision | Recall | F1-score | IoU |
-| --- | ---: | ---: | ---: | ---: |
-| Background | 96,50% | 68,57% | 80,17% | 66,91% |
-| **Crack** | **8,15%** | **66,67%** | **14,52%** | **7,83%** |
-| Peeling | 8,60% | 18,41% | 11,72% | 6,23% |
-| Hollow Area | 3,88% | 27,19% | 6,78% | 3,51% |
-| Erosion | 21,13% | 60,06% | 31,26% | 18,53% |
-| Stain | 11,58% | 19,58% | 14,55% | 7,85% |
-
-> **Interpretação:** para `CRACK`, o recall de aproximadamente 66,7% indica que o modelo encontra cerca de dois terços dos pixels reais de fissura, mas a precisão de 8,15% evidencia um número elevado de falsos positivos. A IoU de 7,83% mostra que a segmentação ainda precisa melhorar substancialmente.
-
-Esses resultados constituem o **baseline** para comparar novas configurações de pré-processamento, características, amostragem e treinamento.
-
-## 5. Estrutura do projeto
-
-Estrutura conhecida até o momento, com as pastas de dados e scripts de execução/teste:
-
-```text
-PI-Seg-Fissuras/
-├── data/
-│   ├── BFDD/
-│   │   ├── RGB/
-│   │   ├── IR/
-│   │   ├── Label/
-│   │   └── Label_color/
-│   └── models/                  # Diretório auxiliar, se mantido
-├── models/
-│   └── random_forest.joblib     # Modelo treinado
-├── src/
-│   ├── dataset/
-│   │   ├── classes.py           # Enum das classes de dano
-│   │   ├── index.py             # Índice e classes presentes por imagem
-│   │   ├── loader.py            # Leitura de RGB e labels
-│   │   ├── masks.py             # Máscaras binárias por classe
-│   │   └── split.py             # Divisão treino/validação/teste
-│   ├── tests/
-│   │   ├── test_dataset.py      # Verificações do dataset
-│   │   ├── test_features.py     # Verificações das características
-│   │   ├── test_training.py     # Rotina de teste/treinamento
-│   │   └── test_prediction.py   # Predição e validação
-│   ├── features.py              # Características e amostragem de pixels
-│   ├── preprocessing.py         # Conversão para cinza e pré-processamento
-│   ├── training.py              # Montagem de dados e Random Forest
-│   ├── prediction.py            # Inferência por pixel
-│   ├── evaluation.py            # TP, FP, FN e métricas
-│   ├── inspect_dataset.py       # Inspeção de arquivos e dimensões
-│   └── visualize_sample.py      # Visualização de imagens e anotações
-├── .gitignore
-├── DATASET_ANALYSIS.md
-├── requirements.txt
-└── README.md
-```
-
-**Observação:** a árvore reflete os arquivos discutidos e implementados até agora; confirme eventuais nomes adicionais ou diferenças na sua cópia local.
-
-### Responsabilidades dos principais módulos
-
-| Módulo | Responsabilidade |
-| --- | --- |
-| `dataset/index.py` | Identificar classes presentes em cada imagem |
-| `dataset/split.py` | Gerar conjuntos sem sobreposição |
-| `features.py` | Extrair sete características e amostrar pixels |
-| `training.py` | Preparar dados de treino e ajustar o classificador |
-| `prediction.py` | Gerar máscara multiclasse para uma imagem |
-| `evaluation.py` | Calcular contagens e métricas por classe |
-| `tests/` | Executar verificações e experimentos do pipeline |
-
-## 6. Ambiente e execução
-
-**Tecnologias:** Python 3, NumPy, OpenCV, scikit-learn, joblib, Pillow e Matplotlib (conforme utilização nos scripts).
-
-No diretório raiz do projeto, instale as dependências:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-Ajuste o caminho dos dados para corresponder à estrutura acima. Os scripts de teste importam módulos diretamente de `src`, portanto é necessário incluí-lo no caminho de importação.
-
-**PowerShell (Windows):**
+Use os comandos abaixo quando precisar gerar artefatos novos. Para inspecionar um modelo existente, pule a construção e o treinamento. A opção `--output` indica a pasta de trabalho. A interface procura os artefatos em `results/region_full/`.
 
 ```powershell
-$env:PYTHONPATH="src"
-python src/tests/test_prediction.py
+python -m experiments.train_regions build --output results/region_full
+python -m experiments.train_regions train --output results/region_full
+python -m experiments.evaluate_regions --output results/region_full
 ```
 
-**Linux/macOS:**
+`build` grava o manifesto, as características e os rótulos em `train.npz` e `validation.npz`, além de `dataset_statistics.json`. Para uma execução reduzida em outra pasta, use `build --smoke --output results/region_smoke`.
 
-```bash
-PYTHONPATH=src python src/tests/test_prediction.py
+`train` lê os NPZ, usa as regiões não ambíguas e salva `random_forest.joblib` e `validation_metrics.json`. Esse relatório avalia a classificação por **região**. `evaluate_regions` usa os IDs de validação do manifesto, acumula contagens por **pixel** e gera `pixel_validation_metrics.json`, `pixel_validation_per_image.json` e exemplos PNG. Para gerar a visualização de um único ID, acrescente `--image-id ID_DE_VALIDACAO`.
+
+A [documentação do BFDD](docs/dataset.md) registra as decisões da divisão e suas limitações. O conjunto de teste permanece reservado.
+
+## Diagnósticos e testes
+
+O diagnóstico do dataset lê pares apenas dos subconjuntos de treino ou validação registrados no manifesto. O diagnóstico SLIC recebe um par RGB e Label explícito. Use caminhos de uma imagem de treino ou validação para examinar fronteiras, categorias supervisionadas e IoU máxima teórica por região.
+
+```powershell
+python -m experiments.inspect_dataset --subset validation --limit 5
+python -m experiments.inspect_regions --image data/BFDD/RGB/ID.JPG --label data/BFDD/Label/ID.png
+python -m unittest discover -s tests -v
 ```
 
-A execução de predição pressupõe que `models/random_forest.joblib` já exista. **Não é necessário treinar novamente** para repetir a avaliação de validação.
+O PNG do diagnóstico SLIC é gravado em `results/diagnostics/diagnostico_slic.png` por padrão. Use `--output` para indicar outro destino.
 
-Os arquivos do dataset e o modelo serializado são volumosos e devem ser mantidos fora do controle de versão, conforme o `.gitignore`.
+## Organização
 
-## 7. Etapas concluídas e próximas atividades
+- `src/` contém o núcleo do pipeline e as métricas compartilhadas.
+- `experiments/` contém os comandos de construção, treino, avaliação e diagnóstico.
+- `visualization/` contém a interface Streamlit e os auxiliares de figuras.
+- `tests/` contém testes automatizados com dados pequenos.
+- `results/` contém artefatos locais e é ignorado pelo Git.
 
-### Concluído
-
-- [x] Inspeção do BFDD e identificação das seis classes.
-- [x] Carregamento das imagens e máscaras.
-- [x] Separação dos conjuntos de treinamento, validação e teste.
-- [x] Conversão para tons de cinza.
-- [x] Extração de sete características por pixel.
-- [x] Amostragem de pixels por classe.
-- [x] Treinamento e persistência da Random Forest.
-- [x] Predição multiclasse de imagens completas.
-- [x] Cálculo de TP, FP, FN, Precision, Recall, F1-score e IoU.
-- [x] Avaliação acumulada das 132 imagens de validação.
-
-### Próximas etapas
-
-- [ ] Visualizar lado a lado a imagem RGB, a label real e a máscara prevista.
-- [ ] Investigar visualmente os falsos positivos, sobretudo da classe `CRACK`.
-- [ ] Testar outras estratégias de amostragem e representação do background.
-- [ ] Comparar novos experimentos com o baseline, mantendo o mesmo conjunto de validação.
-- [ ] Investigar melhorias nas características e no pré-processamento.
-- [ ] Selecionar uma configuração final e avaliá-la **uma única vez** no conjunto de teste reservado.
-- [ ] Documentar os resultados finais e as limitações do método.
-- [ ] Considerar, futuramente, a predição em fotografias externas ao BFDD.
-
-## 8. Limitações atuais
-
-O modelo apresenta excesso de falsos positivos e baixa IoU para fissuras. As causas ainda precisam ser investigadas experimentalmente. Entre as hipóteses estão o desequilíbrio entre a distribuição de pixels amostrados e a distribuição real, a capacidade discriminativa das sete características e a semelhança visual entre defeitos e elementos do fundo.
-
-A avaliação atual é **por pixel**; não mede diretamente a qualidade de fissuras como objetos contínuos, sua conectividade ou localização geométrica. Também não demonstra generalização para fachadas fora do dataset.
-
----
-
-**Status do projeto:** baseline concluído; em fase de análise de erros e melhoria da segmentação.
+A implementação multiclasse anterior por pixel está preservada na branch `main` no ponto histórico `21685cf`.

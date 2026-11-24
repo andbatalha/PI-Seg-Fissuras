@@ -1,8 +1,6 @@
 import numpy as np
 
 from .classes import DamageClass
-from .index import get_present_classes
-from .index import build_dataset_index
 
 def split_dataset(dataset_index):
     combination_groups = {}
@@ -25,7 +23,6 @@ def split_dataset(dataset_index):
     test_images = []
 
     for combination, image_names in combination_groups.items():
-        names = []
 
         image_names = sorted(image_names)
         test_count = round(len(image_names) * 0.2)

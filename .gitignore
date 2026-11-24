@@ -20,11 +20,8 @@ venv/
 Thumbs.db
 
 # Modelos treinados
-models/*.joblib
+/models/*.joblib
+/data/models/*.joblib
 
-# Cache Python
-__pycache__/
-*.pyc
-
-# AI agent instructions
-AGENTS.mdg
+# Diretrizes locais
+/AGENTS.md

@@ -8,27 +8,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Patch
 
-from experiments.inspect_regions import comparison_panels, save_comparison
 from src.dataset.classes import DamageClass
 from src.dataset.loader import load_image, load_label
 from src.dataset.masks import create_binary_mask
-from src.evaluation import calculate_evaluation_counts, calculate_metrics
+from src.evaluation import count_binary_pixels, pixel_metrics
 from src.region_prediction import predict_regions
-
-
-def count_binary_pixels(reference: np.ndarray, prediction: np.ndarray) -> dict[str, int]:
-    """Conta os quatro resultados possíveis, usando Stain como classe positiva."""
-    if reference.ndim != 2 or reference.shape != prediction.shape or not reference.size:
-        raise ValueError("Referência e predição devem ter as mesmas dimensões 2D não vazias.")
-    counts = calculate_evaluation_counts(reference, prediction)
-    return {**counts[1], "TN": counts[0]["TP"]}
-
-
-def pixel_metrics(counts: dict[str, int]) -> dict[str, float]:
-    """Usa as métricas do projeto e acrescenta a acurácia por pixel."""
-    metrics = calculate_metrics(counts["TP"], counts["FP"], counts["FN"])
-    metrics["Accuracy"] = (counts["TP"] + counts["TN"]) / sum(counts.values())
-    return metrics
+from visualization.plotting import comparison_panels, save_comparison
 
 
 def visualize_prediction(rgb, reference, prediction, output: Path) -> None:

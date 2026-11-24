@@ -9,10 +9,10 @@ import numpy as np
 import streamlit as st
 from skimage.segmentation import find_boundaries
 
-from experiments.evaluate_regions import count_binary_pixels, pixel_metrics
 from src.dataset.classes import DamageClass
 from src.dataset.loader import load_image, load_label
 from src.dataset.masks import create_binary_mask
+from src.evaluation import count_binary_pixels, pixel_metrics
 from src.region_prediction import predict_regions
 
 
