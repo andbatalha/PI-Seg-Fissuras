@@ -6,30 +6,24 @@ from time import perf_counter
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.patches import Patch
 
 from src.dataset.classes import DamageClass
 from src.dataset.loader import load_image, load_label
 from src.dataset.masks import create_binary_mask
 from src.evaluation import count_binary_pixels, pixel_metrics
 from src.region_prediction import predict_regions
-from visualization.plotting import comparison_panels, save_comparison
+from visualization.plotting import comparison_panels, pixel_error_legend, pixel_error_map, save_comparison
 
 
 def visualize_prediction(rgb, reference, prediction, output: Path) -> None:
     """Grava quatro painéis com as categorias de erro e uma legenda."""
-    # 2 * referência + previsão codifica, nesta ordem, TN, FP, FN e TP.
-    palette = np.array([[76, 76, 76], [229, 126, 34], [112, 74, 168], [46, 153, 79]])
-    errors = palette[2 * reference + prediction].astype(np.uint8)
     figure, axes = comparison_panels([
         (rgb, "Imagem original"),
         (reference, "Máscara dos autores"),
         (prediction, "Máscara prevista"),
-        (errors, "Mapa de erros"),
+        (pixel_error_map(reference, prediction), "Mapa de erros"),
     ])
-    names = ("Verdadeiro negativo", "Falso positivo", "Falso negativo", "Verdadeiro positivo")
-    handles = [Patch(facecolor=color / 255, label=name) for color, name in zip(palette, names)]
-    axes[-1].legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0), ncol=2)
+    axes[-1].legend(handles=pixel_error_legend(), loc="upper center", bbox_to_anchor=(0.5, 0), ncol=2)
     save_comparison(figure, output)
     plt.close(figure)
 
