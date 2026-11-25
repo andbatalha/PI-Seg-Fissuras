@@ -8,6 +8,8 @@ import numpy as np
 from streamlit.testing.v1 import AppTest
 
 from src.evaluation import count_binary_pixels, pixel_metrics
+from src.region_features import FEATURE_NAMES
+from src.region_labeling import label_regions
 from visualization import app
 
 
@@ -17,6 +19,11 @@ class InspectorTests(unittest.TestCase):
         prediction = np.array([[0, 1], [0, 1]], dtype=np.uint8)
         positive = np.array([[0, 0], [0, 1]], dtype=np.uint8)
         negative = np.zeros((2, 2), dtype=np.uint8)
+        regions = np.array([[10, 90], [10, 90]])
+        click = None
+
+        def display_image(*args, **kwargs):
+            return click
 
         def image_data(model_path, signature, rgb_path, label_path, image_signatures):
             reference = negative if rgb_path.stem == "val_without_stain" else positive
@@ -26,6 +33,12 @@ class InspectorTests(unittest.TestCase):
                 "boundaries": prediction.astype(bool), "region_count": 2,
                 "counts": counts, "metrics": pixel_metrics(counts),
                 "inference_seconds": 0.01,
+                "regions": regions, "region_ids": np.array([10, 90]),
+                "probabilities": np.array([0.5, 0.8]),
+                "features": np.zeros((2, len(FEATURE_NAMES))),
+                "original_predictions": np.array([0, 1]),
+                "labeling": label_regions(regions, reference * 5),
+                "labeling_config": {"negative_max": 0.1, "positive_min": 0.7},
             }
 
         with TemporaryDirectory() as temporary:
@@ -51,23 +64,44 @@ class InspectorTests(unittest.TestCase):
                 patch.multiple(app, ROOT=root, RESULTS=results),
                 patch.object(app, "load_model", return_value=model),
                 patch.object(app, "inspect_image", side_effect=image_data),
+                patch("visualization.region_panels.streamlit_image_coordinates", side_effect=display_image),
             ):
                 article = AppTest.from_string("from visualization.app import main\nmain()").run()
+
+                def control(widgets, label):
+                    return next(widget for widget in widgets if widget.label == label)
+
                 self.assertFalse(article.exception or article.error)
-                self.assertEqual(len(article.get("image")) or len(article.get("imgs")), 4)
+                self.assertEqual(len(article.get("image")) or len(article.get("imgs")), 7)
                 self.assertEqual(len(article.metric), 9)
-                article.button[1].click().run()
+                control(article.button, "Próxima").click().run()
                 self.assertEqual(article.selectbox(key="image_id").value, "val_without_stain")
-                article.selectbox[0].set_value("Com Stain").run()
+                control(article.selectbox, "Presença de Stain").set_value("Com Stain").run()
                 self.assertEqual(article.selectbox(key="image_id").options, ["val_with_stain"])
-                article.selectbox[0].set_value("Todas").run()
-                article.selectbox[1].set_value("IoU").run()
+                control(article.selectbox, "Presença de Stain").set_value("Todas").run()
+                control(article.selectbox, "Ordenar por").set_value("IoU").run()
                 self.assertEqual(article.selectbox(key="image_id").options, [
                     "val_with_stain", "val_without_stain",
                 ])
-                article.toggle[0].set_value(True).run()
-                article.toggle[1].set_value(True).run()
-                article.slider[0].set_value(40).run()
-                article.radio[0].set_value("Treinamento").run()
+                control(article.toggle, "Sobrepor máscaras ao RGB").set_value(True).run()
+                control(article.toggle, "Mostrar fronteiras SLIC").set_value(True).run()
+                control(article.slider, "Opacidade das sobreposições").set_value(40).run()
+                click = {"x": 75, "y": 10, "width": 100, "height": 100}
+                article.run()
+                self.assertEqual(article.selectbox(key="superpixel_id").value, 90)
+                click = None
+                control(article.button, "Adicionar à comparação").click().run()
+                self.assertEqual(article.multiselect(key="compared_regions").value, [90])
+                article.multiselect(key="compared_regions").set_value([90, 10]).run()
+                article.slider(key="threshold").set_value(1.0).run()
+                self.assertEqual(article.multiselect(key="compared_regions").value, [90, 10])
+                self.assertEqual(next(metric.value for metric in article.metric if metric.label == "TP"), "0")
+                control(article.button, "Restaurar limiar padrão").click().run()
+                self.assertEqual(article.slider(key="threshold").value, 0.5)
+                control(article.button, "Limpar comparação").click().run()
+                self.assertEqual(article.multiselect(key="compared_regions").value, [])
+                article.multiselect(key="compared_regions").set_value([90]).run()
+                control(article.radio, "Conjunto").set_value("Treinamento").run()
                 self.assertEqual(article.selectbox(key="image_id").options, ["train_image"])
+                self.assertEqual(article.multiselect(key="compared_regions").value, [])
                 self.assertFalse(article.exception or article.error)
