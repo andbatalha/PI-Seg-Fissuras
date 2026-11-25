@@ -13,6 +13,7 @@ from src.dataset.classes import DamageClass
 from src.dataset.loader import load_image, load_label
 from src.dataset.masks import create_binary_mask
 from src.evaluation import count_binary_pixels, pixel_metrics
+from src.region_labeling import label_regions
 from src.region_prediction import predict_regions
 
 
@@ -21,6 +22,7 @@ ERROR_COLORS = {
     "FP": (239, 45, 54),
     "FN": (41, 105, 255),
 }
+BASELINE_THRESHOLD = 0.50
 
 
 def file_signature(path: Path) -> tuple[int, int] | None:
@@ -67,7 +69,7 @@ def load_model(path: Path, signature: tuple[int, int]) -> dict:
     return artifact
 
 
-@st.cache_data(show_spinner=False, max_entries=24)
+@st.cache_data(show_spinner=False, max_entries=8)
 def inspect_image(
     model_path: Path, model_signature: tuple, rgb_path: Path, label_path: Path,
     image_signatures: tuple,
@@ -76,9 +78,13 @@ def inspect_image(
     artifact = load_model(model_path, model_signature)
     rgb = load_image(rgb_path)
     started = perf_counter()
-    prediction = predict_regions(artifact, rgb)
+    prediction = predict_regions(artifact, rgb, include_details=True)
     inference_seconds = perf_counter() - started
-    reference = create_binary_mask(load_label(label_path), DamageClass.STAIN)
+    label = load_label(label_path)
+    reference = create_binary_mask(label, DamageClass.STAIN)
+    labeling = label_regions(prediction.regions, label, **artifact["pipeline_config"]["labeling"])
+    if not np.array_equal(prediction.region_ids, labeling.region_ids):
+        raise ValueError("Os IDs das regiões previstas e anotadas divergem.")
     counts = count_binary_pixels(reference, prediction.mask)
     return {
         "rgb": rgb,
@@ -89,7 +95,44 @@ def inspect_image(
         "counts": counts,
         "metrics": pixel_metrics(counts),
         "inference_seconds": inference_seconds,
+        "regions": prediction.regions,
+        "region_ids": prediction.region_ids,
+        "features": prediction.features,
+        "probabilities": prediction.probabilities,
+        "original_predictions": prediction.predictions,
+        "labeling": labeling,
+        "labeling_config": artifact["pipeline_config"]["labeling"],
     }
+
+
+def apply_threshold(data: dict, threshold: float) -> tuple[dict, np.ndarray]:
+    """Reusa predict no baseline; fora dele, aceita probabilidades >= limiar."""
+    if not 0 <= threshold <= 1:
+        raise ValueError("O limiar deve estar entre zero e um.")
+    if threshold == BASELINE_THRESHOLD:
+        return data, data["original_predictions"]
+
+    predictions = (data["probabilities"] >= threshold).astype(np.uint8)
+    mask = predictions[data["labeling"].pixel_indices]
+    counts = count_binary_pixels(data["reference"], mask)
+    return {**data, "prediction": mask, "counts": counts, "metrics": pixel_metrics(counts)}, predictions
+
+
+def region_counts(area: int, target_pixels: int, predicted: int) -> dict[str, int]:
+    """Obtém a confusão da região a partir de sua ocupação e classe uniforme."""
+    other_pixels = area - target_pixels
+    return {"TP": target_pixels if predicted else 0, "TN": 0 if predicted else other_pixels,
+            "FP": other_pixels if predicted else 0, "FN": 0 if predicted else target_pixels}
+
+
+def clicked_region(regions: np.ndarray, click: dict) -> int | None:
+    """Converte o clique nas dimensões exibidas para um ID do SLIC original."""
+    width, height = click["width"], click["height"]
+    x, y = click["x"], click["y"]
+    if not (0 <= x < width and 0 <= y < height):
+        return None
+    rows, columns = regions.shape
+    return int(regions[int(y * rows / height), int(x * columns / width)])
 
 
 def blend_masks(rgb: np.ndarray, layers: tuple, opacity: float) -> np.ndarray:
@@ -101,13 +144,10 @@ def blend_masks(rgb: np.ndarray, layers: tuple, opacity: float) -> np.ndarray:
 
 
 def error_overlay(rgb: np.ndarray, reference: np.ndarray, prediction: np.ndarray,
-                  opacity: float) -> np.ndarray:
+                  opacity: float, visible: tuple = ("TP", "FP", "FN")) -> np.ndarray:
     """Sobrepõe TP, FP e FN, mantendo os verdadeiros negativos em RGB."""
     real = reference == 1
     predicted = prediction == 1
-    layers = (
-        (real & predicted, ERROR_COLORS["TP"]),
-        (~real & predicted, ERROR_COLORS["FP"]),
-        (real & ~predicted, ERROR_COLORS["FN"]),
-    )
+    masks = {"TP": real & predicted, "FP": ~real & predicted, "FN": real & ~predicted}
+    layers = tuple((masks[name], ERROR_COLORS[name]) for name in visible)
     return blend_masks(rgb, layers, opacity)

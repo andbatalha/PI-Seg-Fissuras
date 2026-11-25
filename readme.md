@@ -22,6 +22,14 @@ python -m streamlit run visualization/app.py --server.address 127.0.0.1
 
 A interface compara RGB, referência binária, predição e mapa de erros. Ela permite navegar por treino e validação. `pixel_validation_per_image.json` habilita a ordenação por métricas. Os NPZ e o relatório por imagem fornecem a presença de Stain para os filtros.
 
+- **Visão geral** mostra as máscaras e as métricas do limiar ativo. O mapa de erros permite alternar TP (verde), FP (vermelho) e FN (azul). Os mapas de probabilidade de Stain e ocupação real usam a mesma escala viridis fixa de 0% a 100%, com opção de sobreposição ao RGB.
+- **Inspeção de superpixels** permite selecionar pelo clique no RGB ou pelo ID. O painel mostra o contorno, a área, a probabilidade, a ocupação anotada, o rótulo de treino, a classe prevista, TP/TN/FP/FN e as 15 características fornecidas ao modelo.
+- **Comparação de superpixels** permite adicionar, remover e limpar regiões da imagem atual. A tabela mantém a escala original das características e a seleção é reiniciada ao trocar de imagem.
+
+O limiar padrão **0,50** reaproveita as classes originais de `predict()`, inclusive em empates. Nos demais valores, a região é classificada como Stain quando `P(Stain) >= limiar`. Em **0,00**, todas as regiões são positivas. Em **1,00**, apenas as regiões com probabilidade igual a 1 são positivas. O ajuste é diagnóstico, reaproveita as probabilidades em cache e não modifica o modelo. A ordenação e os indicadores rotulados **Baseline salvo** continuam refletindo a avaliação gravada em disco.
+
+A seleção por clique usa `streamlit-image-coordinates`, incluído em `requirements.txt`. As coordenadas exibidas são convertidas para o mapa SLIC na resolução original. As características, probabilidades e ocupação ficam em cache para até oito imagens.
+
 ## Construção, treinamento e avaliação
 
 Use os comandos abaixo quando precisar gerar artefatos novos. Para inspecionar um modelo existente, pule a construção e o treinamento. A opção `--output` indica a pasta de trabalho. A interface procura os artefatos em `results/region_full/`.

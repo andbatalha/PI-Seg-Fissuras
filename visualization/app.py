@@ -7,7 +7,11 @@ import numpy as np
 import streamlit as st
 
 from visualization.inspection import (
-    blend_masks, error_overlay, file_signature, inspect_image, load_catalog, load_model,
+    BASELINE_THRESHOLD, apply_threshold, blend_masks, error_overlay, file_signature,
+    inspect_image, load_catalog, load_model,
+)
+from visualization.region_panels import (
+    reset_region_selection, show_heatmaps, show_region_comparison, show_region_inspector,
 )
 
 
@@ -50,6 +54,8 @@ def navigation(subsets: dict, presence: dict, report: dict) -> str | None:
     if subset == "Validação":
         options = ("ID", *SORT_FIELDS) if report else ("ID",)
         sort_by = st.selectbox("Ordenar por", options)
+        if report:
+            st.caption("Ordenação por métricas do baseline salvo (0,50).")
         if sort_by in SORT_FIELDS:
             direction = st.radio("Ordem", ("Maior primeiro", "Menor primeiro"), horizontal=True)
             group, key = SORT_FIELDS[sort_by]
@@ -79,10 +85,11 @@ def navigation(subsets: dict, presence: dict, report: dict) -> str | None:
     return image_id
 
 
-def show_comparison(data: dict, show_overlays: bool, show_boundaries: bool, opacity: float) -> None:
+def show_comparison(data: dict, show_overlays: bool, show_boundaries: bool,
+                    opacity: float, visible_errors: tuple) -> None:
     """Mostra o RGB, as duas máscaras e o mapa de erros em duas linhas."""
     rgb, reference, prediction = (data[key] for key in ("rgb", "reference", "prediction"))
-    errors = error_overlay(rgb, reference, prediction, opacity)
+    errors = error_overlay(rgb, reference, prediction, opacity, visible_errors)
     if show_overlays:
         target_panel = blend_masks(rgb, ((reference == 1, (41, 105, 255)),), opacity)
         prediction_panel = blend_masks(rgb, ((prediction == 1, (0, 200, 83)),), opacity)
@@ -104,9 +111,9 @@ def show_comparison(data: dict, show_overlays: bool, show_boundaries: bool, opac
     st.caption("🟢 TP · 🔴 FP · 🔵 FN · TN preserva o RGB · 🟡 fronteiras SLIC quando ativadas")
 
 
-def show_metrics(data: dict, recorded: dict | None) -> None:
+def show_metrics(data: dict, recorded: dict | None, threshold: float) -> None:
     """Mostra as métricas calculadas para a máscara que está na tela."""
-    st.subheader("Métricas por pixel")
+    st.subheader(f"Métricas por pixel · limiar {threshold:.2f}")
     for column, (name, title) in zip(st.columns(5), (
         ("Accuracy", "Accuracy"), ("Precision", "Precision"), ("Recall", "Recall"),
         ("IoU", "IoU"), ("F1", "F1-score"),
@@ -123,8 +130,13 @@ def show_metrics(data: dict, recorded: dict | None) -> None:
         f"{data['region_count']} regiões SLIC · inferência {data['inference_seconds']:.3f} s "
         "(tempo da execução que gerou a máscara, reutilizado em cache)"
     )
-    if recorded is not None and counts != recorded["counts"]:
-        st.warning("As contagens atuais diferem do relatório salvo para este ID.")
+    if recorded is not None:
+        if threshold == BASELINE_THRESHOLD and counts != recorded["counts"]:
+            st.warning("As contagens atuais diferem do baseline salvo para este ID.")
+        with st.expander("Baseline salvo · limiar 0,50"):
+            metrics = {name: f"{value:.2%}" for name, value in recorded["metrics"].items()}
+            baseline = {**metrics, **recorded["counts"]}
+            st.table({"Indicador": list(baseline), "Valor": [str(value) for value in baseline.values()]})
 
 
 def show_model(artifact: dict, model_path: Path) -> None:
@@ -140,7 +152,11 @@ def show_model(artifact: dict, model_path: Path) -> None:
             st.json(artifact["forest_config"])
         names = artifact["feature_names"]
         st.markdown(f"**{len(names)} características** · {', '.join(names)}")
-        st.caption("Classificação pelo predict() do Random Forest, sem limiar ajustável na interface.")
+        st.caption("Baseline em 0,50: decisão original de predict(), inclusive em empates.")
+
+
+def reset_threshold() -> None:
+    st.session_state.threshold = BASELINE_THRESHOLD
 
 
 def main() -> None:
@@ -169,21 +185,44 @@ def main() -> None:
         show_overlays = st.toggle("Sobrepor máscaras ao RGB")
         show_boundaries = st.toggle("Mostrar fronteiras SLIC")
         opacity = st.slider("Opacidade das sobreposições", 0, 100, 65) / 100
+        visible_errors = tuple(name for name, title in (
+            ("TP", "Verdadeiros positivos"), ("FP", "Falsos positivos"), ("FN", "Falsos negativos"),
+        ) if st.checkbox(title, value=True))
+        st.header("Decisão")
+        st.session_state.setdefault("threshold", BASELINE_THRESHOLD)
+        threshold = st.slider("Limiar de decisão", 0.0, 1.0, step=0.01,
+                              format="%.2f", key="threshold")
+        st.button("Restaurar limiar padrão", on_click=reset_threshold)
+        st.caption("Em 0,50 vale predict(). Nos demais valores, Stain se probabilidade ≥ limiar.")
     if image_id is not None:
         rgb_path = DATASET / "RGB" / f"{image_id}.JPG"
         label_path = DATASET / "Label" / f"{image_id}.png"
+        image_signatures = file_signature(rgb_path), file_signature(label_path)
         try:
             with st.spinner("Carregando a imagem e a predição…"):
                 data = inspect_image(
                     model_path, model_signature, rgb_path, label_path,
-                    (file_signature(rgb_path), file_signature(label_path)),
+                    image_signatures,
                 )
         except (OSError, ValueError, KeyError) as error:
             st.error(f"Não foi possível inspecionar {image_id}: {error}")
         else:
+            data, predictions = apply_threshold(data, threshold)
+            generation = reset_region_selection(
+                (image_id, model_signature, image_signatures), data["region_ids"],
+            )
             st.subheader(image_id)
-            show_comparison(data, show_overlays, show_boundaries, opacity)
-            show_metrics(data, report.get(image_id))
+            overview, inspector, comparison = st.tabs((
+                "Visão geral", "Inspeção de superpixels", "Comparação de superpixels",
+            ))
+            with overview:
+                show_comparison(data, show_overlays, show_boundaries, opacity, visible_errors)
+                show_metrics(data, report.get(image_id), threshold)
+                show_heatmaps(data, opacity)
+            with inspector:
+                show_region_inspector(data, predictions, generation)
+            with comparison:
+                show_region_comparison(data, predictions)
     show_model(artifact, model_path)
 
 

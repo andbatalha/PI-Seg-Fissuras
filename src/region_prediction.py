@@ -16,6 +16,14 @@ class RegionPrediction:
     predictions: np.ndarray
 
 
+@dataclass(frozen=True)
+class RegionPredictionDetails(RegionPrediction):
+    """Características e probabilidades de classe 1 alinhadas aos IDs previstos."""
+
+    features: np.ndarray
+    probabilities: np.ndarray
+
+
 def reconstruct_binary_mask(
     regions: np.ndarray, region_ids: np.ndarray, predictions: np.ndarray
 ) -> np.ndarray:
@@ -32,8 +40,10 @@ def reconstruct_binary_mask(
     return pixel_classes.reshape(regions.shape).astype(np.uint8, copy=False)
 
 
-def predict_regions(artifact: dict, rgb: np.ndarray) -> RegionPrediction:
-    """Segmenta o RGB e classifica todas as regiões com a configuração salva."""
+def predict_regions(
+    artifact: dict, rgb: np.ndarray, *, include_details: bool = False,
+) -> RegionPrediction:
+    """Classifica todas as regiões e, opcionalmente, devolve os dados diagnósticos."""
     model = artifact["model"]
     config = artifact["pipeline_config"]
     if (tuple(artifact["feature_names"]) != FEATURE_NAMES
@@ -49,4 +59,10 @@ def predict_regions(artifact: dict, rgb: np.ndarray) -> RegionPrediction:
     )
     predictions = model.predict(features)
     mask = reconstruct_binary_mask(regions, region_ids, predictions)
+    if include_details:
+        positive_columns = np.flatnonzero(np.asarray(model.classes_) == 1)
+        if positive_columns.size != 1:
+            raise ValueError("O modelo deve conter uma única coluna para a classe 1.")
+        probabilities = model.predict_proba(features)[:, positive_columns[0]].copy()
+        return RegionPredictionDetails(mask, regions, region_ids, predictions, features, probabilities)
     return RegionPrediction(mask, regions, region_ids, predictions)
