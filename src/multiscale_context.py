@@ -38,20 +38,25 @@ def region_neighborhoods(graph: dict[int, set[int]], region_id: int) -> tuple[se
 
 
 def extract_multiscale_context(rgb: np.ndarray, regions: np.ndarray, *,
-                               timings: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
+                               timings: dict | None = None,
+                               _include_lab: bool = True,
+                               _include_robust: bool = True,
+                               _lab: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Extrai dez colunas do RGB e do mapa SLIC. Vizinhanças vazias retornam zero."""
     if rgb.ndim != 3 or rgb.shape[2] != 3 or regions.shape != rgb.shape[:2] or not regions.size:
         raise ValueError("RGB e mapa SLIC devem ter dimensões espaciais iguais e não vazias.")
     started = perf_counter()
     robust_seconds = 0.0
-    lab = rgb2lab(rgb).reshape(-1, 3)
+    lab = (_lab if _lab is not None else rgb2lab(rgb)).reshape(-1, 3)
     region_ids, inverse, counts = np.unique(regions.ravel(), return_inverse=True, return_counts=True)
     rows = {int(region_id): i for i, region_id in enumerate(region_ids)}
-    sums = np.column_stack([np.bincount(inverse, weights=channel) for channel in lab.T])
+    channels = lab.T if _include_lab else lab.T[:1]
+    sums = np.column_stack([np.bincount(inverse, weights=channel) for channel in channels])
     means = sums / counts[:, None]
-    robust_started = perf_counter()
-    pixels = np.split(lab[np.argsort(inverse, kind="stable"), 0], np.cumsum(counts)[:-1])
-    robust_seconds += perf_counter() - robust_started
+    if _include_robust:
+        robust_started = perf_counter()
+        pixels = np.split(lab[np.argsort(inverse, kind="stable"), 0], np.cumsum(counts)[:-1])
+        robust_seconds += perf_counter() - robust_started
     graph = region_adjacency(regions)
     features = np.zeros((len(region_ids), len(MULTISCALE_NAMES)))
     for i, region_id in enumerate(region_ids):
@@ -60,16 +65,22 @@ def extract_multiscale_context(rgb: np.ndarray, regions: np.ndarray, *,
             if not neighbors:
                 continue
             indices = [rows[node] for node in sorted(neighbors)]
-            first = 3 * scale
-            features[i, first:first + 3] = means[i] - sums[indices].sum(axis=0) / counts[indices].sum()
-            robust_started = perf_counter()
-            lightness = np.concatenate([pixels[index] for index in indices])
-            lower, upper = np.percentile(lightness, [25, 75], overwrite_input=True)
-            features[i, 6 + scale] = means[i, 0] - upper
-            features[i, 8 + scale] = upper - lower
-            robust_seconds += perf_counter() - robust_started
+            if _include_lab:
+                first = 3 * scale
+                features[i, first:first + 3] = means[i] - sums[indices].sum(axis=0) / counts[indices].sum()
+            if _include_robust:
+                robust_started = perf_counter()
+                lightness = np.concatenate([pixels[index] for index in indices])
+                lower, upper = np.percentile(lightness, [25, 75], overwrite_input=True)
+                features[i, 6 + scale] = means[i, 0] - upper
+                features[i, 8 + scale] = upper - lower
+                robust_seconds += perf_counter() - robust_started
     if not np.isfinite(features).all():
         raise ValueError("Os descritores multiescala contêm valores não finitos.")
     if timings is not None:
         timings.update(total=perf_counter() - started, robust=robust_seconds)
+    if not _include_lab:
+        features = features[:, 6:]
+    elif not _include_robust:
+        features = features[:, :6]
     return region_ids, features

@@ -14,7 +14,7 @@ from src.dataset.loader import load_image, load_label
 from src.dataset.masks import create_binary_mask
 from src.evaluation import count_binary_pixels, pixel_metrics
 from src.region_labeling import label_regions
-from src.region_prediction import predict_regions
+from src.region_prediction import model_feature_groups, predict_regions
 
 
 ERROR_COLORS = {
@@ -60,12 +60,13 @@ def load_catalog(results: Path, signatures: tuple) -> tuple[dict, dict, dict]:
     return subsets, presence, report
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(show_spinner=False, max_entries=4)
 def load_model(path: Path, signature: tuple[int, int]) -> dict:
     """Reabre o artefato confiável do projeto e confere a classe treinada."""
     artifact = joblib.load(path)
     if artifact["pipeline_config"]["labeling"]["class_id"] != DamageClass.STAIN:
         raise ValueError("O artefato informado não corresponde à classe Stain (ID 5).")
+    model_feature_groups(artifact)
     return artifact
 
 
@@ -98,6 +99,7 @@ def inspect_image(
         "regions": prediction.regions,
         "region_ids": prediction.region_ids,
         "features": prediction.features,
+        "feature_names": artifact["feature_names"],
         "probabilities": prediction.probabilities,
         "original_predictions": prediction.predictions,
         "labeling": labeling,

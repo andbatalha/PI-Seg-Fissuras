@@ -6,7 +6,6 @@ from matplotlib import colormaps
 from skimage.segmentation import find_boundaries
 from streamlit_image_coordinates import streamlit_image_coordinates
 
-from src.region_features import FEATURE_NAMES
 from visualization.inspection import blend_masks, clicked_region, region_counts
 
 
@@ -103,7 +102,7 @@ def show_region_inspector(data: dict, predictions: np.ndarray, generation: int) 
         compared = st.session_state.compared_regions
         if st.button("Adicionar à comparação", disabled=selected in compared):
             st.session_state.compared_regions = [*compared, selected]
-        st.dataframe({"Característica": FEATURE_NAMES, "Valor": data["features"][position]},
+        st.dataframe({"Característica": data["feature_names"], "Valor": data["features"][position]},
                      hide_index=True, width="stretch")
 
 
@@ -130,7 +129,7 @@ def show_region_comparison(data: dict, predictions: np.ndarray) -> None:
             column.image(highlighted_region(data, region_id, crop=True),
                          caption=f"Superpixel {region_id}", width="content")
     indicators = {"Indicador": list(summaries[0])}
-    features = {"Característica": FEATURE_NAMES}
+    features = {"Característica": data["feature_names"]}
     for region_id, position, summary in zip(selected, positions, summaries):
         title = f"ID {region_id}"
         indicators[title] = [str(value) for value in summary.values()]

@@ -28,7 +28,8 @@ class RegionDiagnosticsTests(unittest.TestCase):
         }}
         with (
             patch("src.region_prediction.segment_regions", return_value=regions),
-            patch("src.region_prediction.extract_region_features", return_value=(np.array([10, 90]), features)),
+            patch("src.region_prediction.extract_features",
+                  return_value=(np.array([10, 90]), features, FEATURE_NAMES)),
         ):
             result = predict_regions(artifact, np.zeros((1, 2, 3)), include_details=True)
         self.assertIs(result.features, features)

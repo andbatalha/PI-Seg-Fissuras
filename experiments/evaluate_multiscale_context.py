@@ -9,39 +9,42 @@ from time import perf_counter
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
 from skimage.segmentation import mark_boundaries
 
 from experiments.evaluate_thresholds import (
-    BASELINE_COUNTS, I01, I01_REGIONS, REGION_DTYPE, apply_threshold, best_index, flow_counts,
-    read_json, read_regions, summarize_counts, threshold_curve, write_csv, write_json,
+    BASELINE_COUNTS, I01, I01_REGIONS, REGION_DTYPE, apply_threshold, flow_counts,
+    optimal_threshold, read_json, read_regions, summarize_counts, write_csv, write_json,
 )
-from experiments.evaluate_feature_importance import forest_decisions
+from experiments.reporting import guard_cli_output, write_summary
 from src.dataset.classes import DamageClass
 from src.dataset.loader import load_image, load_label
 from src.dataset.masks import create_binary_mask
-from src.evaluation import count_binary_pixels, pixel_metrics
-from src.multiscale_context import MULTISCALE_NAMES, extract_multiscale_context
-from src.region_features import FEATURE_NAMES, extract_region_features
-from src.region_labeling import label_regions
-from src.region_prediction import reconstruct_binary_mask
-from src.region_training import FOREST_CONFIG
+from src.evaluation import count_binary_pixels, count_region_pixels, pixel_metrics
+from src.feature_extractor import DEFAULT_FEATURE_GROUPS, FEATURE_GROUPS
+from src.multiscale_context import MULTISCALE_NAMES
+from src.region_dataset import build_image_rows, save_region_dataset
+from src.region_features import FEATURE_NAMES
+from src.region_prediction import forest_decisions, reconstruct_binary_mask
+from src.region_training import FOREST_CONFIG, binary_samples, fit_region_forest
 from src.segmentation import segment_regions
 from visualization.plotting import comparison_panels, pixel_error_legend, pixel_error_map, save_comparison
 
 
 VARIANTS = {"B00": 15, "E01.1-A": 21, "E01.1-B": 25}
+VARIANT_GROUPS = {
+    "B00": DEFAULT_FEATURE_GROUPS,
+    "E01.1-A": (*DEFAULT_FEATURE_GROUPS, "multiscale_lab"),
+    "E01.1-B": tuple(FEATURE_GROUPS),
+}
 FIXED_THRESHOLD = 0.7404814731187024
 POLICIES = ("default", "fixed_d03", "optimal_iou")
 HOMOGENEOUS_FEATURES = ("glcm_contrast", "hist_entropy", "mean_gradient", "std_l")
 
 
-def check_alignment(saved: dict, indices: np.ndarray, ids: np.ndarray, labeling) -> None:
+def check_alignment(saved: dict, indices: np.ndarray, rows: dict) -> None:
     """Rejeita reutilização quando IDs, áreas, contagens ou rótulos divergem."""
-    fields = {"region_ids": ids, "pixel_counts": labeling.pixel_counts,
-              "target_counts": labeling.target_counts, "labels": labeling.labels}
-    for key, current in fields.items():
-        if not np.array_equal(saved[key][indices], current):
+    for key in ("region_ids", "pixel_counts", "target_counts", "target_fractions", "labels"):
+        if not np.array_equal(saved[key][indices], rows[key]):
             raise ValueError(f"O campo {key} diverge do dataset original.")
 
 
@@ -57,39 +60,29 @@ def prepare_split(dataset: Path, original_path: Path, output: Path, ids: list[st
     columns = np.empty((len(saved["labels"]), len(MULTISCALE_NAMES)))
     times = np.zeros((len(ids), 3))
     class_counts = np.empty((len(columns), len(DamageClass)), dtype=np.int64) if validation else None
+    groups = tuple(FEATURE_GROUPS) if validation else ("multiscale_lab", "multiscale_robust")
     for i, image_id in enumerate(ids):
         rows = np.flatnonzero(saved["image_indices"] == i)
-        image_started = perf_counter()
-        rgb = load_image(dataset / "RGB" / f"{image_id}.JPG")
-        regions = segment_regions(rgb, **config["slic"])
-        if validation:
-            original_ids, original = extract_region_features(
-                rgb, regions, neighborhood_radius=config["features"]["neighborhood_radius"],
-            )
-            if not np.array_equal(original_ids, saved["region_ids"][rows]) or not np.array_equal(original, saved["features"][rows]):
-                raise ValueError(f"As 15 características originais divergem em {image_id}.")
-        base_seconds = perf_counter() - image_started
         timing = {}
-        region_ids, context = extract_multiscale_context(rgb, regions, timings=timing)
-        # A anotação é carregada após extrair todas as características do RGB.
-        annotation = load_label(dataset / "Label" / f"{image_id}.png")
-        labeling = label_regions(regions, annotation, **config["labeling"])
-        if not np.array_equal(region_ids, labeling.region_ids):
-            raise ValueError(f"A ordem das regiões diverge em {image_id}.")
-        check_alignment(saved, rows, region_ids, labeling)
-        columns[rows] = context
-        times[i] = base_seconds, timing["total"], timing["robust"]
+        extracted = build_image_rows(dataset, image_id, feature_groups=groups, pipeline_config=config,
+                                     include_class_counts=validation, timings=timing)
+        check_alignment(saved, rows, extracted)
+        context = extracted["features"]
         if validation:
-            bins = labeling.pixel_indices.ravel() * len(DamageClass) + annotation.ravel()
-            class_counts[rows] = np.bincount(bins, minlength=len(rows) * len(DamageClass)).reshape(-1, len(DamageClass))
+            original, context = np.split(context, [len(FEATURE_NAMES)], axis=1)
+            if not np.array_equal(original, saved["features"][rows]):
+                raise ValueError(f"As 15 características originais divergem em {image_id}.")
+            class_counts[rows] = extracted["class_pixel_counts"]
+        columns[rows] = context
+        times[i] = timing["rgb_slic"] + timing["base"], timing["multiscale"], timing["robust"]
         if i == 0 or (i + 1) % 25 == 0 or i + 1 == len(ids):
             print(f"{original_path.stem}: {i + 1}/{len(ids)}", flush=True)
 
     features = np.column_stack((saved.pop("features"), columns))
-    saved["feature_names"] = np.array((*FEATURE_NAMES, *MULTISCALE_NAMES))
     if validation:
         saved["class_pixel_counts"] = class_counts
-    np.savez_compressed(output, **saved, features=features, inference_preparation_seconds=times)
+    saved.update(features=features, inference_preparation_seconds=times)
+    save_region_dataset(output, saved, FEATURE_GROUPS)
     return {"images": len(ids), "regions": len(features), "seconds": perf_counter() - started,
             "bytes": output.stat().st_size}
 
@@ -120,12 +113,15 @@ def prepare_datasets(dataset: Path, baseline: Path, output: Path) -> None:
         statistics[name] = prepare_split(dataset, baseline / f"{name}.npz", root / f"{name}.npz",
                                          manifest[name], artifact["pipeline_config"], validation=name == "validation")
     write_json(root / "preparation_statistics.json", statistics)
+    write_summary(root)
 
 
 def validate_prepared(saved: dict, original: dict) -> None:
     """Garante que só houve adição de colunas, sem trocar linhas ou metadados."""
     if tuple(saved["feature_names"]) != (*FEATURE_NAMES, *MULTISCALE_NAMES):
         raise ValueError("Ordem das características experimentais incompatível.")
+    if "feature_groups" in saved and saved["feature_groups"].tolist() != list(FEATURE_GROUPS):
+        raise ValueError("Grupos de características experimentais incompatíveis.")
     for key in ("image_ids", "image_indices", "region_ids", "pixel_counts", "target_counts",
                 "labels", "pipeline_config"):
         if not np.array_equal(saved[key], original[key]):
@@ -134,30 +130,45 @@ def validate_prepared(saved: dict, original: dict) -> None:
         raise ValueError("As características originais foram modificadas.")
 
 
-def train_variants(data: dict, artifact: dict, output: Path) -> tuple[dict, dict]:
+def train_variants(data: dict, artifact: dict, output: Path,
+                   variants: tuple = tuple(VARIANTS), *, reuse: bool = False) -> tuple[dict, dict]:
     """Ajusta as variantes independentes com as mesmas linhas binárias e parâmetros."""
     models = {"B00": artifact["model"]}
-    binary = data["labels"] != -1
-    labels = data["labels"][binary]
+    features, labels, dataset_metadata = binary_samples(data, source="treino do E01.1")
+    if dataset_metadata["feature_groups"] != list(FEATURE_GROUPS):
+        raise ValueError("Grupos de características incompatíveis com o dataset compartilhado do E01.1.")
     statistics = {}
     parameters = artifact["model"].get_params()
-    output.mkdir(parents=True, exist_ok=True)
-    for name, columns in VARIANTS.items():
+    if not reuse:
+        output.mkdir(parents=True, exist_ok=True)
+    for name in variants:
+        columns = VARIANTS[name]
         metadata = {"variant": name, "forest_config": parameters, "pipeline_config": artifact["pipeline_config"],
-                    "feature_names": data["feature_names"][:columns].tolist(), "image_ids": data["image_ids"].tolist()}
-        row = {"training_examples": int(binary.sum()), "negative": int((labels == 0).sum()),
+                    "feature_names": dataset_metadata["feature_names"][:columns],
+                    "image_ids": dataset_metadata["image_ids"]}
+        groups = list(VARIANT_GROUPS[name])
+        row = {"training_examples": labels.size, "negative": int((labels == 0).sum()),
                "positive": int((labels == 1).sum()), "features": columns, "forest_config": parameters}
         if name != "B00":
-            model = RandomForestClassifier(**parameters)
-            started = perf_counter()
-            model.fit(data["features"][binary, :columns], labels)
-            row["training_seconds"] = perf_counter() - started
             path = output / f"{name}.joblib"
-            joblib.dump({"model": model, **metadata}, path, compress=3)
+            if reuse:
+                saved = joblib.load(path)
+                model = saved["model"]
+                if (any(saved.get(key) != value for key, value in metadata.items())
+                        or saved.get("feature_groups", groups) != groups
+                        or model.n_features_in_ != columns or model.get_params() != parameters):
+                    raise ValueError(f"Modelo incompatível: {path}")
+                row["training_seconds"] = saved.get("training_seconds")
+            else:
+                model, row["training_seconds"] = fit_region_forest(
+                    features[:, :columns], labels, forest_config=parameters,
+                )
+                joblib.dump({"model": model, **metadata, "feature_groups": groups,
+                             "training_seconds": row["training_seconds"]}, path, compress=3)
+                print(f"Treino concluído: {name} ({row['training_seconds']:.2f} s)", flush=True)
             row["model_bytes"] = path.stat().st_size
             row["model_path"] = path.as_posix()
             models[name] = model
-            print(f"Treino concluído: {name} ({row['training_seconds']:.2f} s)", flush=True)
         statistics[name] = row
     return models, statistics
 
@@ -182,9 +193,12 @@ def evaluation_rows(data: dict) -> np.ndarray:
     return rows
 
 
-def score_model(model, data: dict, columns: int, locations: list[np.ndarray]) -> tuple[np.ndarray, ...]:
+def score_model(model, data: dict, columns: int, locations: list[np.ndarray],
+                *, progress: str = "") -> tuple[np.ndarray, ...]:
     """Prediz por imagem e reaproveita as probabilidades em todas as políticas."""
     features = data["features"]
+    if columns != model.n_features_in_ or features.shape[1] < columns:
+        raise ValueError("O NPZ não fornece a quantidade de colunas esperada pelo estimador.")
     probabilities = np.empty(len(features))
     selected = np.empty(len(features), dtype=bool)
     times = np.empty(len(locations))
@@ -193,15 +207,10 @@ def score_model(model, data: dict, columns: int, locations: list[np.ndarray]) ->
         predicted, scores = forest_decisions(model, model.predict_proba(features[rows, :columns]))
         times[i] = perf_counter() - started
         probabilities[rows], selected[rows] = scores, predicted
+        if progress and ((i + 1) % 25 == 0 or i + 1 == len(locations)):
+            print(f"{progress} · {i + 1}/{len(locations)} imagens · "
+                  f"{sum(map(len, locations[:i + 1]))} regiões", flush=True)
     return selected, probabilities, times
-
-
-def optimal_threshold(rows: np.ndarray) -> tuple[float | None, np.ndarray, dict]:
-    thresholds = np.r_[np.inf, np.unique(rows["probability"])[::-1]]
-    curve = threshold_curve(rows, thresholds)
-    index = best_index(curve, np.ones(len(thresholds), dtype=bool))
-    threshold = None if np.isinf(thresholds[index]) else float(thresholds[index])
-    return threshold, thresholds, curve
 
 
 def evaluate_decision(rows: np.ndarray, selected: np.ndarray, locations: list[np.ndarray], times: np.ndarray,
@@ -210,14 +219,14 @@ def evaluate_decision(rows: np.ndarray, selected: np.ndarray, locations: list[np
     for indices, seconds in zip(locations, times):
         group = rows[indices]
         flags = selected[indices]
-        counts = flow_counts(group, flags)
+        counts = count_region_pixels(group["stain"], group["other"], flags)
         has_stain = bool(group["stain"].any())
         per_image.append({"variant": model_name, "policy": policy, "threshold": threshold,
                           "image_id": str(group["image"][0]), "has_stain": has_stain,
                           **summarize_counts(counts, flags.sum(), not has_stain and flags.any()),
                           "inference_seconds": float(seconds)})
     counts = {key: sum(row[key] for row in per_image) for key in BASELINE_COUNTS}
-    if counts != flow_counts(rows, selected):
+    if counts != count_region_pixels(rows["stain"], rows["other"], selected):
         raise ValueError("As contagens por imagem divergem das contagens globais.")
     with_stain = [row["IoU"] for row in per_image if row["has_stain"]]
     report = {"variant": model_name, "policy": policy, "threshold": threshold,
@@ -342,11 +351,11 @@ def save_examples(dataset: Path, output: Path, examples: dict, locations: dict, 
 def save_charts(output: Path, comparison: list[dict], curves: dict) -> None:
     output.mkdir(parents=True, exist_ok=True)
     figure, axis = plt.subplots(figsize=(9, 4))
-    x = np.arange(len(VARIANTS))
+    x = np.arange(len(curves))
     for i, policy in enumerate(POLICIES):
         values = [row["IoU"] for row in comparison if row["policy"] == policy]
         axis.bar(x + (i - 1) * 0.22, values, width=0.22, label=policy)
-    axis.set(xticks=x, xticklabels=VARIANTS, ylabel="IoU global")
+    axis.set(xticks=x, xticklabels=list(curves), ylabel="IoU global")
     axis.legend()
     figure.tight_layout()
     figure.savefig(output / "iou_comparison.png", dpi=150)
@@ -364,26 +373,45 @@ def save_charts(output: Path, comparison: list[dict], curves: dict) -> None:
     plt.close(figure)
 
 
-def run_evaluation(dataset: Path, baseline: Path, diagnostics: Path, output: Path) -> dict:
+def train_prepared(baseline: Path, prepared: Path, output: Path, variants: tuple) -> dict:
+    """Treina só as variantes solicitadas a partir do NPZ já preparado."""
+    _, artifact = model_metadata(baseline)
+    train = read_npz(prepared / "train.npz")
+    validate_prepared(train, read_npz(baseline / "train.npz"))
+    _, statistics = train_variants(train, artifact, output / "models", variants)
+    report_path = output / "training_statistics.json"
+    existing = read_json(report_path) if report_path.is_file() else {}
+    write_json(report_path, {**existing, **statistics})
+    write_summary(output)
+    return statistics
+
+
+def run_evaluation(dataset: Path, baseline: Path, diagnostics: Path, output: Path, *,
+                   variants: tuple = tuple(VARIANTS), prepared: Path | None = None,
+                   models_root: Path | None = None, reuse_models: bool = False,
+                   render: bool = True) -> dict:
     started = perf_counter()
     manifest, artifact = model_metadata(baseline)
     config = artifact["pipeline_config"]
     baseline_train = read_json(baseline / "validation_metrics.json")
     d03 = read_json(diagnostics / "D03_threshold_analysis" / "global_statistics.json")
     bounds = homogeneous_definition(diagnostics / "D04_feature_importance")
-    train, validation = (read_npz(output / "datasets" / f"{name}.npz") for name in ("train", "validation"))
+    variants = ("B00", *(name for name in variants if name != "B00"))
+    prepared = prepared or output / "datasets"
+    train, validation = (read_npz(prepared / f"{name}.npz") for name in ("train", "validation"))
     for name, split in (("train", train), ("validation", validation)):
         validate_prepared(split, read_npz(baseline / f"{name}.npz"))
     if int((train["labels"] != -1).sum()) != baseline_train["training_regions"]:
         raise ValueError("Quantidade de amostras binárias de treino divergente da baseline.")
+    models, training = train_variants(train, artifact, models_root or output / "models", variants, reuse=reuse_models)
+    output.mkdir(parents=True, exist_ok=True)
     write_json(output / "configuration.json", {
         "train_ids": manifest["train"], "validation_ids": manifest["validation"], "pipeline_config": config,
         "forest_config": artifact["model"].get_params(), "fixed_threshold": FIXED_THRESHOLD,
-        "features": {name: validation["feature_names"][:count].tolist() for name, count in VARIANTS.items()},
+        "features": {name: validation["feature_names"][:VARIANTS[name]].tolist() for name in variants},
         "homogeneity_rule": "ocupação Stain >= 70% e todas as quatro features <= Q1 de TP do D04",
         "homogeneity_bounds": bounds, "tie_break": "maior limiar, incluindo solução totalmente negativa",
     })
-    models, training = train_variants(train, artifact, output / "models")
     training["B00"].update(training_seconds=baseline_train["training_seconds"],
                            model_bytes=(baseline / "random_forest.joblib").stat().st_size,
                            model_path=(baseline / "random_forest.joblib").as_posix())
@@ -407,10 +435,11 @@ def run_evaluation(dataset: Path, baseline: Path, diagnostics: Path, output: Pat
     selections, rows_by_model, curves = {}, {}, {}
     base, context, robust = validation["inference_preparation_seconds"].T
     preparation = {"B00": base, "E01.1-A": base + context - robust, "E01.1-B": base + context}
-    for name, columns in VARIANTS.items():
+    for name in variants:
+        columns = VARIANTS[name]
         result = rows.copy()
         result["original"], result["probability"], inference = score_model(
-            models[name], validation, columns, list(locations.values()),
+            models[name], validation, columns, list(locations.values()), progress=name,
         )
         if name == "B00":
             check_baseline(result, diagnostics / "D02_false_positives")
@@ -445,13 +474,39 @@ def run_evaluation(dataset: Path, baseline: Path, diagnostics: Path, output: Pat
     write_csv(output / "false_positives_by_class.csv", fp_classes)
     write_i01(output / "i01_superpixel_comparison.csv", rows_by_model, selections)
     export_thresholds(output / "threshold_metrics.csv", curves)
-    save_charts(output / "charts", comparison, curves)
-    save_examples(dataset, output / "examples", examples, locations, rows, selections, per_image, config)
+    np.savez_compressed(output / "predictions.npz", **{f"rows_{name}": result for name, result in rows_by_model.items()},
+                        **{f"selection_{name}_{policy}": values for name, policies in selections.items()
+                           for policy, values in policies.items()})
+    if render:
+        save_charts(output / "charts", comparison, curves)
+        save_examples(dataset, output / "examples", examples, locations, rows, selections, per_image, config)
     report = {"images": len(locations), "regions": len(rows), "examples": examples, "comparison": comparison,
-              "dataset_preparation": read_json(output / "datasets" / "preparation_statistics.json"),
+              "dataset_preparation": read_json(prepared / "preparation_statistics.json"),
               "train_evaluate_export_seconds": perf_counter() - started}
     write_json(output / "global_metrics.json", report)
+    write_summary(output)
     return report
+
+
+def render_saved_evaluation(dataset: Path, output: Path) -> None:
+    """Regenera figuras a partir das decisões salvas, sem carregar o Random Forest."""
+    config = read_json(output / "configuration.json")
+    report = read_json(output / "global_metrics.json")
+    predictions = read_npz(output / "predictions.npz")
+    rows = predictions["rows_B00"]
+    locations = {name: np.flatnonzero(rows["image"] == name) for name in config["validation_ids"]}
+    variants = tuple(config["features"])
+    selections = {name: {policy: predictions[f"selection_{name}_{policy}"] for policy in POLICIES}
+                  for name in variants}
+    if (set(rows["image"]) != set(locations) or not set(report["examples"]).issubset(locations)
+            or any(values.shape != rows.shape for policies in selections.values() for values in policies.values())):
+        raise ValueError("IDs ou dimensões incompatíveis no cache de predições.")
+    with (output / "per_image_metrics.csv").open(encoding="utf-8", newline="") as stream:
+        per_image = [{**row, **{key: int(row[key]) for key in BASELINE_COUNTS}} for row in csv.DictReader(stream)]
+    curves = {name: optimal_threshold(predictions[f"rows_{name}"])[1:] for name in variants}
+    save_charts(output / "charts", report["comparison"], curves)
+    save_examples(dataset, output / "examples", report["examples"], locations, rows,
+                  selections, per_image, config["pipeline_config"])
 
 
 def main() -> None:
@@ -460,13 +515,39 @@ def main() -> None:
     parser.add_argument("--baseline", type=Path, default=Path("results/region_full"))
     parser.add_argument("--diagnostics", type=Path, default=Path("results/diagnostics"))
     parser.add_argument("--output", type=Path, default=Path("results/optimization/E01_1_multiscale_context"))
-    parser.add_argument("--phase", choices=("all", "prepare", "evaluate"), default="all")
+    parser.add_argument("--phase", choices=("all", "prepare", "evaluate", "train", "validate", "render"), default="all")
+    parser.add_argument("--variant", choices=("all", "A", "B"), default="all")
+    parser.add_argument("--prepared", type=Path, help="Diretório de NPZ experimentais já preparados.")
+    parser.add_argument("--models", type=Path, help="Diretório dos modelos para a etapa validate.")
     args = parser.parse_args()
+    variants = tuple(VARIANTS) if args.variant == "all" else (f"E01.1-{args.variant}",)
+    prepared = args.prepared or args.output / "datasets"
+    evaluation_targets = ("configuration.json", "training_statistics.json", "global_metrics.json", "predictions.npz",
+                          "model_comparison.csv", "per_image_metrics.csv", "false_positives_by_class.csv",
+                          "i01_superpixel_comparison.csv", "threshold_metrics.csv", "summary.md")
+    model_targets = tuple(f"models/{name}.joblib" for name in variants if name != "B00")
+    targets = set()
+    if args.phase in ("all", "prepare"):
+        targets.add("datasets")
+    if args.phase in ("all", "evaluate", "train"):
+        targets.update((*model_targets, "training_statistics.json", "summary.md"))
+    if args.phase in ("all", "evaluate", "validate"):
+        targets.update(evaluation_targets)
+    if args.phase in ("all", "evaluate", "render"):
+        targets.update(("charts", "examples", "summary.md"))
+    guard_cli_output(args.output, tuple(sorted(targets)), owner="E01_1_multiscale_context")
     if args.phase in ("all", "prepare"):
         prepare_datasets(args.dataset, args.baseline, args.output)
-    if args.phase in ("all", "evaluate"):
-        report = run_evaluation(args.dataset, args.baseline, args.diagnostics, args.output)
+    if args.phase == "train":
+        train_prepared(args.baseline, prepared, args.output, tuple(name for name in variants if name != "B00"))
+    if args.phase in ("all", "evaluate", "validate"):
+        report = run_evaluation(args.dataset, args.baseline, args.diagnostics, args.output,
+                                variants=variants, prepared=prepared,
+                                models_root=args.models if args.phase == "validate" else None,
+                                reuse_models=args.phase == "validate", render=args.phase != "validate")
         print(json.dumps(report, indent=2))
+    if args.phase == "render":
+        render_saved_evaluation(args.dataset, args.output)
 
 
 if __name__ == "__main__":

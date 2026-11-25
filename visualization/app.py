@@ -6,6 +6,7 @@ from random import choice
 import numpy as np
 import streamlit as st
 
+from experiments.reporting import saved_model_paths
 from visualization.inspection import (
     BASELINE_THRESHOLD, apply_threshold, blend_masks, error_overlay, file_signature,
     inspect_image, load_catalog, load_model,
@@ -152,7 +153,7 @@ def show_model(artifact: dict, model_path: Path) -> None:
             st.json(artifact["forest_config"])
         names = artifact["feature_names"]
         st.markdown(f"**{len(names)} características** · {', '.join(names)}")
-        st.caption("Baseline em 0,50: decisão original de predict(), inclusive em empates.")
+        st.caption("Em 0,50, vale a decisão de predict(), inclusive em empates.")
 
 
 def reset_threshold() -> None:
@@ -163,10 +164,15 @@ def main() -> None:
     st.set_page_config(page_title="BFDD · Inspeção de Stain", layout="wide")
     st.title("Inspeção de Stain")
     st.caption("BFDD · classe 5 · segmentação por regiões SLIC")
-    model_path = RESULTS / "random_forest.joblib"
+    baseline_model = RESULTS / "random_forest.joblib"
+    models = saved_model_paths(RESULTS, ROOT / "results")
+    if not models or not (RESULTS / "split.json").is_file():
+        st.error("Disponibilize um modelo salvo em results/ e o manifesto em results/region_full/split.json.")
+        return
+    model_path = st.sidebar.selectbox("Modelo ativo", models, format_func=lambda path: path.relative_to(ROOT).as_posix())
     model_signature = file_signature(model_path)
-    if model_signature is None or not (RESULTS / "split.json").is_file():
-        st.error("Coloque random_forest.joblib e split.json em results/region_full/.")
+    if model_signature is None:
+        st.error("O arquivo do modelo selecionado não está disponível.")
         return
     signatures = tuple(file_signature(RESULTS / name) for name in (
         "split.json", "pixel_validation_per_image.json", "train.npz", "validation.npz",
@@ -177,6 +183,8 @@ def main() -> None:
     except (OSError, ValueError, KeyError, ImportError) as error:
         st.error(f"Não foi possível carregar os artefatos: {error}")
         return
+    if model_path != baseline_model:
+        report = {}
 
     with st.sidebar:
         st.header("Navegação")
@@ -209,7 +217,7 @@ def main() -> None:
         else:
             data, predictions = apply_threshold(data, threshold)
             generation = reset_region_selection(
-                (image_id, model_signature, image_signatures), data["region_ids"],
+                (image_id, model_path, model_signature, image_signatures), data["region_ids"],
             )
             st.subheader(image_id)
             overview, inspector, comparison = st.tabs((

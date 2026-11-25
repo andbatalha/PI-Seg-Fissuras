@@ -16,6 +16,27 @@ def count_binary_pixels(reference: np.ndarray, prediction: np.ndarray) -> dict[s
     }
 
 
+def count_region_pixels(stain: np.ndarray, non_stain: np.ndarray,
+                        selected: np.ndarray) -> dict[str, int]:
+    """Soma pixels de referência em regiões alinhadas às decisões binárias.
+
+    As entradas são vetores por região e podem estar vazias. Cada região tem
+    uma única decisão, aplicada tanto aos seus pixels Stain quanto aos demais.
+    """
+    if selected.ndim != 1 or selected.shape != stain.shape or selected.shape != non_stain.shape:
+        raise ValueError("As contagens e as decisões devem ter a mesma forma unidimensional.")
+    if selected.dtype != np.bool_:
+        if not np.isin(selected, (0, 1)).all():
+            raise ValueError("As decisões por região devem ser binárias.")
+        selected = selected.astype(bool)
+    return {
+        "TP": int(stain[selected].sum()),
+        "TN": int(non_stain[~selected].sum()),
+        "FP": int(non_stain[selected].sum()),
+        "FN": int(stain[~selected].sum()),
+    }
+
+
 def calculate_metrics(true_positive: int, false_positive: int,
                       false_negative: int) -> dict[str, float]:
     """Calcula métricas da classe positiva, usando zero se o denominador for nulo."""
@@ -36,5 +57,6 @@ def calculate_metrics(true_positive: int, false_positive: int,
 def pixel_metrics(counts: dict[str, int]) -> dict[str, float]:
     """Calcula as métricas de Stain e a acurácia global das duas classes."""
     metrics = calculate_metrics(counts["TP"], counts["FP"], counts["FN"])
-    metrics["Accuracy"] = (counts["TP"] + counts["TN"]) / sum(counts.values())
+    total = sum(counts.values())
+    metrics["Accuracy"] = (counts["TP"] + counts["TN"]) / total if total else 0.0
     return metrics

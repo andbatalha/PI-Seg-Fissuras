@@ -9,10 +9,11 @@ from time import perf_counter
 import matplotlib.pyplot as plt
 import numpy as np
 
+from experiments.reporting import guard_cli_output, write_summary
 from src.dataset.classes import DamageClass
 from src.dataset.loader import load_image, load_label
 from src.dataset.masks import create_binary_mask
-from src.evaluation import count_binary_pixels, pixel_metrics
+from src.evaluation import count_binary_pixels, count_region_pixels, pixel_metrics
 from src.region_labeling import label_regions
 from src.region_prediction import reconstruct_binary_mask
 from src.segmentation import segment_regions
@@ -58,8 +59,7 @@ def apply_threshold(probabilities: np.ndarray, threshold: float | None) -> np.nd
 
 def flow_counts(regions: np.ndarray, selected: np.ndarray) -> dict:
     """Soma as contribuições por região, ponderadas pela quantidade de pixels."""
-    return {"TP": int(regions["stain"][selected].sum()), "TN": int(regions["other"][~selected].sum()),
-            "FP": int(regions["other"][selected].sum()), "FN": int(regions["stain"][~selected].sum())}
+    return count_region_pixels(regions["stain"], regions["other"], selected)
 
 
 def threshold_curve(regions: np.ndarray, thresholds: np.ndarray) -> dict[str, np.ndarray]:
@@ -73,10 +73,13 @@ def threshold_curve(regions: np.ndarray, thresholds: np.ndarray) -> dict[str, np
             "FN": regions["stain"].sum() - tp, "positive_regions": selected}
 
 
+def exact_thresholds(regions: np.ndarray) -> np.ndarray:
+    """Enumera os cortes distintos, do maior para o menor, incluindo tudo negativo."""
+    return np.r_[np.inf, np.unique(regions["probability"])[::-1]]
+
+
 def summarize_counts(counts: dict, positive_regions: int, empty_positive_images: int) -> dict:
-    metrics = pixel_metrics(counts) if sum(counts.values()) else dict.fromkeys(
-        ("Precision", "Recall", "IoU", "F1", "Accuracy"), 0.0
-    )
+    metrics = pixel_metrics(counts)
     negatives = counts["FP"] + counts["TN"]
     metrics["Specificity"] = counts["TN"] / negatives if negatives else 0.0
     metrics["false_positive_rate"] = counts["FP"] / negatives if negatives else 0.0
@@ -102,6 +105,15 @@ def best_index(curve: dict, feasible: np.ndarray, *, f1: bool = False) -> int | 
             best = int(position)
             best_numerator, best_denominator = numerator, denominator
     return best
+
+
+def optimal_threshold(regions: np.ndarray) -> tuple[float | None, np.ndarray, dict]:
+    """Maximiza a IoU global e resolve empates pelo maior corte."""
+    thresholds = exact_thresholds(regions)
+    curve = threshold_curve(regions, thresholds)
+    index = best_index(curve, np.ones(len(thresholds), dtype=bool))
+    threshold = None if np.isinf(thresholds[index]) else float(thresholds[index])
+    return threshold, thresholds, curve
 
 
 def choose_optima(curve: dict, baseline: dict) -> dict:
@@ -357,7 +369,7 @@ def run_experiment(d02: Path, baseline: Path, dataset: Path, output: Path) -> di
     original_empty_positive = sum(bool(by_image[name]["original"].any()) for name in empty_ids)
     baseline_report = baseline_groups(grouped, original_empty_positive)
     grid = np.arange(101) / 100
-    exact = np.r_[np.inf, np.unique(regions["probability"])[::-1]]
+    exact = exact_thresholds(regions)
     curve = threshold_curve(regions, exact)
     affected = maxima.size - np.searchsorted(maxima, exact, side="left")
     optima = {
@@ -402,6 +414,7 @@ def run_experiment(d02: Path, baseline: Path, dataset: Path, output: Path) -> di
                "changes": changes, "optima": optima, "i01": next(row for row in comparison if row["image_id"] == I01),
                "examples": examples, "wall_seconds": perf_counter() - started}
     write_json(output / "global_statistics.json", summary)
+    write_summary(output)
     return summary
 
 
@@ -412,6 +425,8 @@ def main() -> None:
     parser.add_argument("--dataset", type=Path, default=Path("data/BFDD"))
     parser.add_argument("--output", type=Path, default=Path("results/diagnostics/D03_threshold_analysis"))
     args = parser.parse_args()
+    targets = tuple(path.name for path in args.output.iterdir()) if args.output.is_dir() else ()
+    guard_cli_output(args.output, targets, owner="D03_threshold_analysis")
     report = run_experiment(args.d02, args.baseline, args.dataset, args.output)
     print(json.dumps({key: report[key] for key in ("optima", "changes", "wall_seconds")}, indent=2))
 

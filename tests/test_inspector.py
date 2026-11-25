@@ -26,17 +26,20 @@ class InspectorTests(unittest.TestCase):
             return click
 
         def image_data(model_path, signature, rgb_path, label_path, image_signatures):
+            names = FEATURE_NAMES if model_path.parent == results else ("hist_entropy",)
             reference = negative if rgb_path.stem == "val_without_stain" else positive
-            counts = count_binary_pixels(reference, prediction)
+            mask = prediction if model_path.parent == results else np.zeros_like(prediction)
+            counts = count_binary_pixels(reference, mask)
             return {
-                "rgb": rgb, "reference": reference, "prediction": prediction,
+                "rgb": rgb, "reference": reference, "prediction": mask,
                 "boundaries": prediction.astype(bool), "region_count": 2,
                 "counts": counts, "metrics": pixel_metrics(counts),
                 "inference_seconds": 0.01,
                 "regions": regions, "region_ids": np.array([10, 90]),
                 "probabilities": np.array([0.5, 0.8]),
-                "features": np.zeros((2, len(FEATURE_NAMES))),
-                "original_predictions": np.array([0, 1]),
+                "feature_names": names,
+                "features": np.zeros((2, len(names))),
+                "original_predictions": mask[0],
                 "labeling": label_regions(regions, reference * 5),
                 "labeling_config": {"negative_max": 0.1, "positive_min": 0.7},
             }
@@ -46,6 +49,9 @@ class InspectorTests(unittest.TestCase):
             results = root / "results"
             results.mkdir()
             (results / "random_forest.joblib").touch()
+            second = results / "manual" / "baseline" / "entropy" / "random_forest.joblib"
+            second.parent.mkdir(parents=True)
+            second.touch()
             (results / "split.json").write_text(json.dumps({
                 "train": ["train_image"],
                 "validation": ["val_without_stain", "val_with_stain"],
@@ -59,11 +65,14 @@ class InspectorTests(unittest.TestCase):
             (results / "pixel_validation_per_image.json").write_text(
                 json.dumps(report), encoding="utf-8"
             )
-            model = {"pipeline_config": {"slic": {}}, "forest_config": {}, "feature_names": []}
+            def model_data(path, signature):
+                names = ("hist_entropy",) if path == second else FEATURE_NAMES
+                return {"pipeline_config": {"slic": {}}, "forest_config": {}, "feature_names": names}
+
             with (
                 patch.multiple(app, ROOT=root, RESULTS=results),
-                patch.object(app, "load_model", return_value=model),
-                patch.object(app, "inspect_image", side_effect=image_data),
+                patch.object(app, "load_model", side_effect=model_data),
+                patch.object(app, "inspect_image", side_effect=image_data) as inspect,
                 patch("visualization.region_panels.streamlit_image_coordinates", side_effect=display_image),
             ):
                 article = AppTest.from_string("from visualization.app import main\nmain()").run()
@@ -104,4 +113,14 @@ class InspectorTests(unittest.TestCase):
                 control(article.radio, "Conjunto").set_value("Treinamento").run()
                 self.assertEqual(article.selectbox(key="image_id").options, ["train_image"])
                 self.assertEqual(article.multiselect(key="compared_regions").value, [])
+                self.assertFalse(article.exception or article.error)
+                control(article.radio, "Conjunto").set_value("Validação").run()
+                article.multiselect(key="compared_regions").set_value([90]).run()
+                control(article.selectbox, "Modelo ativo").set_value(second).run()
+                self.assertEqual(inspect.call_args.args[0], second)
+                self.assertEqual(control(article.selectbox, "Ordenar por").options, ["ID"])
+                self.assertEqual(article.multiselect(key="compared_regions").value, [])
+                self.assertEqual(next(metric.value for metric in article.metric if metric.label == "TP"), "0")
+                self.assertTrue(any(list(frame.value["Característica"]) == ["hist_entropy"]
+                                    for frame in article.dataframe if "Característica" in frame.value))
                 self.assertFalse(article.exception or article.error)

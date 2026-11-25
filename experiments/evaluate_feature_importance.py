@@ -11,11 +11,13 @@ import numpy as np
 from scipy.stats import mannwhitneyu, rankdata
 
 from experiments.evaluate_thresholds import BASELINE_COUNTS, I01, I01_REGIONS, read_json, read_regions, write_csv, write_json
+from experiments.reporting import guard_cli_output, write_summary
 from src.dataset.classes import DamageClass
 from src.dataset.loader import load_image, load_label
-from src.evaluation import pixel_metrics
+from src.evaluation import count_region_pixels, pixel_metrics
 from src.region_features import FEATURE_GROUPS, FEATURE_NAMES, _LEVELS, extract_region_features
 from src.region_labeling import label_regions
+from src.region_prediction import forest_decisions
 from src.segmentation import segment_regions
 
 
@@ -82,19 +84,8 @@ def permute_columns(features: np.ndarray, columns: tuple[int, ...], seed: int) -
 
 def weighted_metrics(regions: np.ndarray, selected: np.ndarray) -> dict:
     """Avalia por pixel sem reconstruir máscaras, usando as contagens por região."""
-    counts = {"TP": int(regions["stain"][selected].sum()), "TN": int(regions["other"][~selected].sum()),
-              "FP": int(regions["other"][selected].sum()), "FN": int(regions["stain"][~selected].sum())}
-    return {**counts, **(pixel_metrics(counts) if sum(counts.values()) else
-                        dict.fromkeys(("Accuracy", "Precision", "Recall", "IoU", "F1"), 0.0))}
-
-
-def forest_decisions(model, probabilities: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Usa a mesma ordem de classes e argmax de predict(), inclusive nos empates."""
-    classes = np.asarray(model.classes_)
-    positive = np.flatnonzero(classes == 1)
-    if len(classes) != 2 or positive.size != 1 or 0 not in classes:
-        raise ValueError("O modelo deve fornecer as duas classes binárias 0 e 1.")
-    return classes[np.argmax(probabilities, axis=1)] == 1, probabilities[:, positive[0]]
+    counts = count_region_pixels(regions["stain"], regions["other"], selected)
+    return {**counts, **pixel_metrics(counts)}
 
 
 def verify_reference(model, features: np.ndarray, regions: np.ndarray, baseline: Path, d03: Path) -> tuple[dict, dict]:
@@ -412,6 +403,7 @@ def run_experiment(dataset: Path, baseline: Path, d02: Path, d03: Path, output: 
               "extraction_and_npz_seconds": extraction_seconds, "permutation_seconds": permutation_seconds,
               "analyses_and_exports_seconds": perf_counter() - analyses_started, "wall_seconds": perf_counter() - started}
     write_json(output / "global_statistics.json", report)
+    write_summary(output)
     return {key: report[key] for key in ("images", "regions", "reproduction", "extraction_and_npz_seconds",
                                          "permutation_seconds", "wall_seconds")}
 
@@ -425,6 +417,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("results/diagnostics/D04_feature_importance"))
     parser.add_argument("--reuse-features", action="store_true", help="Reutiliza o NPZ do D04 após validar seu alinhamento.")
     args = parser.parse_args()
+    targets = tuple(path.name for path in args.output.iterdir()) if args.output.is_dir() else ()
+    guard_cli_output(args.output, targets, owner="D04_feature_importance")
     print(run_experiment(args.dataset, args.baseline, args.d02, args.d03, args.output,
                          reuse_features=args.reuse_features), flush=True)
 

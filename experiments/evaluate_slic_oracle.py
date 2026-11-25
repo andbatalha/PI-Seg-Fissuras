@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from skimage.segmentation import mark_boundaries
 
+from experiments.reporting import guard_cli_output, write_summary
 from src.dataset.classes import DamageClass
 from src.dataset.loader import load_image, load_label
 from src.dataset.masks import create_binary_mask
@@ -246,6 +247,7 @@ def run_experiment(dataset: Path, baseline: Path, output: Path) -> dict:
             ))
     report["wall_seconds"] = perf_counter() - started
     write_json(output / "global_metrics.json", report)
+    write_summary(output)
     return report
 
 
@@ -255,6 +257,8 @@ def main() -> None:
     parser.add_argument("--baseline", type=Path, default=Path("results/region_full"))
     parser.add_argument("--output", type=Path, default=Path("results/diagnostics/D01_slic_oracle"))
     args = parser.parse_args()
+    targets = tuple(path.name for path in args.output.iterdir()) if args.output.is_dir() else ()
+    guard_cli_output(args.output, targets, owner="D01_slic_oracle")
     print(json.dumps(run_experiment(args.dataset, args.baseline, args.output), indent=2))
 
 

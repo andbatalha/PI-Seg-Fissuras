@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from experiments.evaluate_regions import visualize_prediction
+from experiments.reporting import guard_cli_output, write_summary
 from src.dataset.classes import DamageClass
 from src.dataset.loader import load_image, load_label
 from src.dataset.masks import create_binary_mask
@@ -310,6 +311,7 @@ def run_experiment(dataset: Path, baseline: Path, d01: Path, output: Path) -> di
               "examples": examples, "inference_seconds_including_rgb_load": sum(r["inference_seconds_including_rgb_load"] for r in images),
               "wall_seconds": perf_counter() - started}
     write_json(output / "global_statistics.json", report)
+    write_summary(output)
     return report
 
 
@@ -320,6 +322,8 @@ def main() -> None:
     parser.add_argument("--d01", type=Path, default=Path("results/diagnostics/D01_slic_oracle"))
     parser.add_argument("--output", type=Path, default=Path("results/diagnostics/D02_false_positives"))
     args = parser.parse_args()
+    targets = tuple(path.name for path in args.output.iterdir()) if args.output.is_dir() else ()
+    guard_cli_output(args.output, targets, owner="D02_false_positives")
     print(json.dumps(run_experiment(args.dataset, args.baseline, args.d01, args.output), indent=2))
 
 
